@@ -28,7 +28,8 @@ import * as historyDb from '../db/executionHistory'
 import { uuid } from '../utils/id'
 import { detectLanguage, languageName, canRunLocally } from '../utils/language'
 import * as gitService from '../services/gitService'
-import { executeCode, checkTermuxBridge, clearBridgeCache, type ExecutionSource } from '../services/executionService'
+import { executeCode, checkTermuxBridge, clearBridgeCache, getBridgeError, pollTermuxSession, writeTermuxStdin, killTermuxSession, type ExecutionSource } from '../services/executionService'
+import { usesInteractiveInput } from '../utils/language'
 import { collectProjectFiles, previewUrlFor, syncTermuxWorkspace, termuxSupportsPreview } from '../services/termuxPreview'
 import { buildHtmlPreview } from '../utils/htmlPreview'
 import { isHtmlPreview } from '../utils/markdown'
@@ -45,10 +46,12 @@ import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorA
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
+import { inputPrompts, programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
+export type InputWizardState = { fileId: string; prompts: string[]; values: string[]; index: number } | null
 export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }
 
 const TAB_SYNC_ID = uuid()
@@ -102,6 +105,7 @@ interface StoreState {
   // terminal / execution
   terminalOpen: boolean
   terminalHeight: number
+  inputWizard: InputWizardState
   stdin: string
   running: boolean
   runningFileId: string | null
@@ -145,6 +149,9 @@ interface StoreState {
   activePluginPanel: string | null
   landscapeSplit: boolean
   termuxAvailable: boolean
+  termuxError: string | null
+  liveSessionId: string | null
+  livePromptOpen: boolean
   lastRunSource: ExecutionSource | null
   homeAction: 'new' | null
   importProjectOpen: boolean
@@ -287,8 +294,12 @@ interface StoreState {
   convertActiveLineEnding: (to: LineEnding) => void
 
   // execution
-  runCurrentFile: () => Promise<void>
+  runCurrentFile: (options?: { allowEmptyInput?: boolean }) => Promise<void>
+  sendLiveInput: (line: string) => Promise<void>
+  stopLiveRun: () => Promise<void>
   setStdin: (v: string) => void
+  setInputPanelOpen: (v: boolean) => void
+  setInputWizard: (wizard: InputWizardState) => void
   setTerminalOpen: (v: boolean) => void
   setTerminalHeight: (v: number) => void
   clearTerminal: () => void
@@ -336,6 +347,7 @@ export const useStore = create<StoreState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
+  inputWizard: null,
   stdin: '',
   running: false,
   runningFileId: null,
@@ -374,6 +386,9 @@ export const useStore = create<StoreState>((set, get) => ({
   activePluginPanel: null,
   landscapeSplit: false,
   termuxAvailable: false,
+  termuxError: null,
+  liveSessionId: null,
+  livePromptOpen: false,
   lastRunSource: null,
   homeAction: null,
   importProjectOpen: false,
@@ -395,26 +410,48 @@ export const useStore = create<StoreState>((set, get) => ({
   referencesOpen: false,
 
   bootstrap: async () => {
-    const [projects, settings, editorState, auth] = await Promise.all([
+    const [projects, settings, editorState, storedAuth] = await Promise.all([
       projectsDb.listProjects(),
       settingsDb.loadSettings(),
       editorDb.loadEditorState(),
       authService.loadStoredAuth(),
     ])
-    // handle OAuth redirect if present
-    if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
+    let auth = storedAuth
+
+    // Handle OAuth redirects both on the explicit callback route and on hosts
+    // that fall back to the SPA entry point before the route rewrite runs.
+    if (
+      typeof window !== 'undefined' &&
+      (
+        window.location.pathname === '/auth/callback'
+        || window.location.search.includes('code=')
+        || window.location.search.includes('error=')
+      )
+    ) {
       try {
         const cbAuth = await authService.handleOAuthCallback()
-        if (cbAuth) set({ auth: cbAuth })
+        if (cbAuth) {
+          auth = cbAuth
+          get().showToast('Connected to GitHub', 'success')
+        }
       } catch (err) {
-        // swallow; toast on next render
+        get().showToast(authService.oauthErrorMessage(err), 'error')
       }
     }
-    // restore a project
+
+    // Restore a project.
     const active = projects.length ? projects[0] : null
-    set({ projects, settings, auth, booted: true })
+    setBridgeOrigin(settings.termuxBridgeUrl)
+    set({
+      projects,
+      settings,
+      auth,
+      booted: true,
+      cursorPositions: editorState.cursorPositions || {},
+      scrollPositions: editorState.scrollPositions || {},
+    })
     await get().setActiveProject(active?.id ?? null)
-    // restore tabs
+    // Restore tabs and editor chrome state.
     if (editorState.openTabIds.length) {
       set({
         openTabs: editorState.openTabIds,
@@ -439,7 +476,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setActiveProject: async (id) => {
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [] })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [], inputWizard: null })
       return
     }
     await projectsDb.touchProject(id)
@@ -449,7 +486,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const rootId = getRootNodeId(nodeMap)
     const lastSaved: Record<string, string> = {}
     for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved })
+    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved, inputWizard: null })
     await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
@@ -682,9 +719,12 @@ export const useStore = create<StoreState>((set, get) => ({
     get().showToast(`Converted to ${to.toUpperCase()}`, 'success')
   },
 
-  runCurrentFile: async () => {
+  runCurrentFile: async (options) => {
     const s = get()
-    // Run the configured main file for this project if one exists, else active tab
+    if (s.running) {
+      get().showToast('A run is already in progress', 'info')
+      return
+    }
     let id = s.activeTabId
     const pid = s.activeProjectId
     const configuredMain = pid ? s.settings.runConfiguration[pid] : undefined
@@ -699,8 +739,35 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Code execution requires internet connection. Your code is saved and will run when you are back online.', 'info')
       return
     }
-    set({ running: true, runningFileId: node.id, terminalOpen: true })
+
+    if (programNeedsInput(lang, node.content) && s.stdin.trim().length === 0 && !options?.allowEmptyInput) {
+      const prompts = inputPrompts(lang, node.content).map((prompt) => prompt.label)
+      set({
+        inputWizard: prompts.length ? { fileId: node.id, prompts, values: [], index: 0 } : null,
+        terminalOpen: true,
+        bottomPanelTab: 'terminal',
+        livePromptOpen: !prompts.length,
+      })
+      if (!prompts.length) {
+        appendTerminal({
+          kind: 'info',
+          text: 'This program expects input. Enter all values in Program input, one value per line, then press Run again.',
+        })
+        get().showToast('Enter the program input before running.', 'info')
+      }
+      return
+    }
+
+    if (get().liveSessionId) await get().stopLiveRun()
+    const wantsInput = usesInteractiveInput(node.content, lang)
+    set({
+      running: true, runningFileId: node.id, terminalOpen: true, bottomPanelTab: 'terminal',
+      livePromptOpen: wantsInput,
+    })
     appendTerminal({ kind: 'system', text: `Running ${node.name} (${languageName(lang)})…` })
+    if (wantsInput) {
+      appendTerminal({ kind: 'info', text: 'Program uses scanf/input. Type a value below and press Send (or put all answers in Input first).' })
+    }
     const start = Date.now()
     try {
       const settings = get().settings
@@ -717,35 +784,76 @@ export const useStore = create<StoreState>((set, get) => ({
 
       if (result.stdout.trim()) appendTerminal({ kind: 'stdout', text: result.stdout.trimEnd() })
       if (result.stderr.trim()) appendTerminal({ kind: 'stderr', text: result.stderr.trimEnd() })
-      if (result.compileOutput.trim()) appendTerminal({ kind: 'system', text: result.compileOutput.trimEnd() })
+      if (result.compileOutput.trim() && result.compileOutput !== result.stderr) {
+        appendTerminal({ kind: 'system', text: result.compileOutput.trimEnd() })
+      }
+
+      if (result.sessionId && !result.done) {
+        set({ liveSessionId: result.sessionId, running: true, livePromptOpen: true })
+        startLivePoll(result.sessionId, result.stdout.length, result.stderr.length)
+        appendTerminal({ kind: 'system', text: 'Waiting for input…', source })
+        return
+      }
 
       const elapsed = Date.now() - start
-      appendTerminal({ kind: 'system', text: `Execution time: ${(elapsed / 1000).toFixed(2)}s · memory: ${result.memoryKb}KB · status: ${result.status}`, source })
+      const fail = !result.success
+      appendTerminal({
+        kind: fail ? 'stderr' : 'system',
+        text: `${fail ? 'Failed' : 'Done'} · ${(elapsed / 1000).toFixed(2)}s · ${result.memoryKb}KB · ${result.status}`,
+        source,
+      })
       if (result.status === 'time_limit_exceeded') {
         get().showToast('Your code exceeded the time limit. Consider optimizing your solution.', 'error')
       }
 
-      // persist to history
       const hist: Omit<ExecutionResult, 'id'> = {
         fileId: node.id,
         projectId: get().activeProjectId || '',
         languageName: languageName(lang),
-        code: node.content,
+        code: node.content.slice(0, 20_000),
         stdout: result.stdout, stderr: result.stderr, compileOutput: result.compileOutput,
         status: result.status,
         timeMs: elapsed, memoryKb: result.memoryKb, timestamp: Date.now(),
       }
-      await historyDb.addExecutionResult(hist)
-      set({ running: false, runningFileId: null })
+      await historyDb.addExecutionResult(hist).catch(() => undefined)
     } catch (err) {
       const msg = (err as Error).message || 'Execution failed'
       appendTerminal({ kind: 'system', text: `Error: ${msg}` })
       get().showToast(msg, 'error')
-      set({ running: false, runningFileId: null })
+    } finally {
+      if (!get().liveSessionId) {
+        set({ running: false, runningFileId: null })
+      }
     }
   },
 
+  sendLiveInput: async (line) => {
+    const id = get().liveSessionId
+    if (!id) {
+      get().showToast('No program is waiting for input', 'info')
+      return
+    }
+    const text = line.endsWith('\n') ? line : line + '\n'
+    appendTerminal({ kind: 'system', text: `← ${line.replace(/\n$/, '')}` })
+    try {
+      await writeTermuxStdin(id, text)
+    } catch (err) {
+      get().showToast((err as Error).message || 'Could not send input', 'error')
+    }
+  },
+  stopLiveRun: async () => {
+    const id = get().liveSessionId
+    stopLivePoll()
+    if (id) await killTermuxSession(id)
+    set({ liveSessionId: null, running: false, runningFileId: null })
+    appendTerminal({ kind: 'system', text: 'Stopped.' })
+  },
   setStdin: (v) => set({ stdin: v }),
+  setInputPanelOpen: (v) => set({
+    livePromptOpen: v,
+    ...(v ? { terminalOpen: true, bottomPanelTab: 'terminal' as const } : {}),
+  }),
+  setInputWizard: (wizard) => set({ inputWizard: wizard }),
   setTerminalOpen: (v) => { set({ terminalOpen: v }); get().persistEditorState() },
   setTerminalHeight: (v) => { set({ terminalHeight: v }); get().persistEditorState() },
   clearTerminal: () => set({ terminalText: [] }),
@@ -772,14 +880,21 @@ export const useStore = create<StoreState>((set, get) => ({
   // ---- GitHub actions ----
   connectGitHub: () => {
     try { navigator.vibrate?.(10) } catch {}
-    authService.beginOAuth()
+    try {
+      authService.beginOAuth()
+    } catch (err) {
+      get().showToast(authService.oauthErrorMessage(err), 'error')
+    }
   },
   handleCallback: async () => {
     try {
       const auth = await authService.handleOAuthCallback()
-      if (auth) set({ auth })
+      if (auth) {
+        set({ auth })
+        get().showToast('Connected to GitHub', 'success')
+      }
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(authService.oauthErrorMessage(err), 'error')
     }
   },
   disconnectGitHub: async () => {
@@ -861,7 +976,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().refreshProject()
       await get().refreshGitStatus()
       set({ commitOpen: false })
-      get().showToast(`Committed ${sha.slice(0, 7)}`, 'success')
+      get().showToast(`Committed & pushed ${sha.slice(0, 7)}`, 'success')
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -1048,8 +1163,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   refreshTermuxStatus: async () => {
     clearBridgeCache()
-    const available = await checkTermuxBridge()
-    set({ termuxAvailable: available })
+    const available = await checkTermuxBridge(true)
+    set({ termuxAvailable: available, termuxError: available ? null : getBridgeError() })
   },
   openHome: (action) => {
     set({ homeAction: action ?? null })
@@ -1383,6 +1498,46 @@ function s_nodeMap(map: Record<string, FileNode>, id: string): FileNode | undefi
 }
 function appendTerminal(line: Omit<TerminalLine, 'id'>) {
   useStore.setState((s) => ({ terminalText: [...s.terminalText, { ...line, id: uuid() }].slice(-200) }))
+}
+
+let liveTimer: ReturnType<typeof setInterval> | null = null
+function stopLivePoll() {
+  if (liveTimer) {
+    clearInterval(liveTimer)
+    liveTimer = null
+  }
+}
+function startLivePoll(sessionId: string, outLen: number, errLen: number) {
+  stopLivePoll()
+  let seenOut = outLen
+  let seenErr = errLen
+  liveTimer = setInterval(() => {
+    void (async () => {
+      const id = useStore.getState().liveSessionId
+      if (!id || id !== sessionId) {
+        stopLivePoll()
+        return
+      }
+      try {
+        const snap = await pollTermuxSession(id)
+        if (snap.stdout.length > seenOut) {
+          appendTerminal({ kind: 'stdout', text: snap.stdout.slice(seenOut) })
+          seenOut = snap.stdout.length
+        }
+        if (snap.stderr.length > seenErr) {
+          appendTerminal({ kind: 'stderr', text: snap.stderr.slice(seenErr) })
+          seenErr = snap.stderr.length
+        }
+        if (snap.done) {
+          stopLivePoll()
+          useStore.setState({ liveSessionId: null, running: false, runningFileId: null })
+          appendTerminal({ kind: 'system', text: snap.status === 'time_limit_exceeded' ? 'Session timed out' : `Done · ${snap.status}`, source: 'termux' })
+        }
+      } catch {
+        // keep polling until kill / timeout
+      }
+    })()
+  }, 350)
 }
 async function dbUpdateRoot(id: string, patch: Partial<FileNode>) {
   await db.files.update(id, patch)

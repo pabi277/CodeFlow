@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { FindInProject } from './components/FindInProject'
 import { Settings } from './components/Settings'
 import { ContextMenu } from './components/Shared/ContextMenu'
+import { ProgramInputWizard } from './components/ProgramInputWizard'
 import { Toasts } from './components/Shared/Toasts'
 import { RepoBrowser } from './components/GitHub/RepoBrowser'
 import { UploadModal } from './components/GitHub/UploadModal'
@@ -146,6 +147,7 @@ export default function App() {
       <FindInProject />
       <Settings />
       <ContextMenu />
+      <ProgramInputWizard />
       <ImportProjectModal
         open={importProjectOpen}
         onClose={() => useStore.getState().setImportProjectOpen(false)}

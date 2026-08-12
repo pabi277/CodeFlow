@@ -3,6 +3,7 @@
 // for large files). Skipped for files > 10k lines for performance.
 
 import type { CompletionEntry } from './keywords'
+import { extractCSymbols } from '../cLanguage'
 
 export interface LocalSymbol {
   name: string
@@ -58,7 +59,9 @@ export function extractLocalSymbols(code: string, language: string): LocalSymbol
         else if (fn[3]) push(fn[3], 'class', i + 1)
       }
     }
-  } else if (['c', 'cpp', 'java'].includes(language)) {
+  } else if (language === 'c') {
+    for (const s of extractCSymbols(code)) push(s.name, s.type, s.line)
+  } else if (['cpp', 'java'].includes(language)) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
       const fn = line.match(/(?:void|int|float|double|char|bool|long|auto|String|boolean)\s+([A-Za-z_]\w*)\s*\(/)

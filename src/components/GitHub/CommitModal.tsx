@@ -71,20 +71,13 @@ export function CommitModal() {
             <p className="py-4 text-center text-[13px] text-ink-muted">No changes to commit</p>
           )}
         </div>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4">
           <button
             onClick={() => doCommit(message, ids, true)}
             disabled={!message.trim() || !ids.length}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-3 py-3 text-sm font-semibold text-white disabled:opacity-40"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-3 py-3 text-sm font-semibold text-white disabled:opacity-40"
           >
             <FiGitCommit /> Commit &amp; Push
-          </button>
-          <button
-            onClick={() => doCommit(message, ids, false)}
-            disabled={!message.trim() || !ids.length}
-            className="flex-1 rounded-xl border border-ink/15 px-3 py-3 text-sm font-medium text-ink active:bg-white/5 disabled:opacity-40"
-          >
-            Commit Only
           </button>
         </div>
       </div>

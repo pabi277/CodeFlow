@@ -22,6 +22,22 @@ async function main() {
   const js = await formatDocument('const x=1;function f(){return x}', 'javascript', 2)
   ok(js.ok && js.text.includes('function f()') && js.text.includes('const x = 1'), `prettier formats JS (got ${JSON.stringify(js.ok ? js.text : js.error)})`)
 
+  console.log('\n[c indent]')
+  const messy = [
+    '#include <stdio.h>',
+    '',
+    'int main(void) {',
+    '  int y;',
+    '    y=6;',
+    '  return 0;',
+    '}',
+    '',
+  ].join('\n')
+  const c = await formatDocument(messy, 'c', 2)
+  ok(c.ok && c.text.includes('  int y;\n  y=6;\n  return 0;'), `C statements share one indent (got ${JSON.stringify(c.ok ? c.text : c.error)})`)
+  const hash = await formatDocument(['  #include <stdio.h>', 'int main(){', 'int x;', '}', ''].join('\n'), 'c', 2)
+  ok(hash.ok && hash.text.startsWith('#include'), 'preprocessor stays in column 0')
+
   console.log('\n[whitespace]')
   const ws = await formatDocument('foo  \nbar\t\n\n\n', 'python', 2)
   ok(ws.ok && ws.text === 'foo\nbar\n', `strips trailing space and extra newlines (got ${JSON.stringify(ws.ok ? ws.text : ws.error)})`)

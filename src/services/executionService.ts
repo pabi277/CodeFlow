@@ -1,10 +1,20 @@
-// Unified execution service with a priority chain:
-//   JS/TS -> browser local runner (always)
-//   other -> Termux bridge (if running) -> Judge0 (if key configured) -> mock
+// Unified execution service with a per-language priority chain:
+//   preview/none -> short message (never hit Termux)
+//   JS/TS        -> browser sandbox, unless sibling modules + Termux
+//   termux langs -> Termux (filtered workspace) -> Judge0 -> mock
+//   judge0 langs -> Judge0 -> mock
 import { runLocalJavaScript, mockSample } from './mockRunner'
 import * as judge0 from './judge0Service'
-import { judge0IdForLanguage, canRunLocally, languageName, detectLanguage } from '../utils/language'
-import { getBridgeOrigin } from './bridgeUrl'
+import {
+  judge0IdForLanguage,
+  canRunLocally,
+  languageName,
+  detectLanguage,
+  getLanguageProfile,
+  filterWorkspaceFiles,
+  usesInteractiveInput,
+} from '../utils/language'
+import { getBridgeOrigin, setBridgeOrigin, normalizeBridgeOrigin } from './bridgeUrl'
 import type { ExecStatus } from '../types'
 
 export type ExecutionSource = 'local' | 'termux' | 'judge0' | 'mock'
@@ -19,40 +29,93 @@ export interface ExecuteResult {
   memoryKb: number
   source: ExecutionSource
   error?: string
+  sessionId?: string
+  interactive?: boolean
+  done?: boolean
 }
 
-// Cache bridge availability for 30s
-let bridgeCache = { available: false, checkedAt: 0 }
+const MAX_STREAM_CHARS = 48_000
+const FETCH_TIMEOUT_MS = 18_000
 
-export async function checkTermuxBridge(): Promise<boolean> {
-  if (Date.now() - bridgeCache.checkedAt < 30000) return bridgeCache.available
-  try {
-    const res = await fetch(`${getBridgeOrigin()}/health`, { signal: AbortSignal.timeout(1500) })
-    // Bridge is considered available only if it answers with { status: "ok" }
-    if (res.ok) {
-      const data = await res.json().catch(() => null)
-      bridgeCache = { available: data?.status === 'ok', checkedAt: Date.now() }
-    } else {
-      bridgeCache = { available: false, checkedAt: Date.now() }
-    }
-  } catch {
-    bridgeCache = { available: false, checkedAt: Date.now() }
+export function clipOutput(text: string, max = MAX_STREAM_CHARS): string {
+  if (!text || text.length <= max) return text || ''
+  return text.slice(0, max) + `\n…[truncated ${text.length - max} chars]…`
+}
+
+let bridgeCache = { available: false, checkedAt: 0 }
+let bridgeError: string | null = null
+
+export function getBridgeError(): string | null {
+  return bridgeError
+}
+
+function explainBridgeError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err || '')
+  const httpsPage = typeof location !== 'undefined' && location.protocol === 'https:'
+  if (/abort|timeout/i.test(msg)) {
+    return 'No answer from the bridge (timeout). In Termux run: node termux-bridge.js'
   }
-  return bridgeCache.available
+  if (httpsPage) {
+    return 'This HTTPS site could not reach http://127.0.0.1:8080. On your phone: keep Termux running the new bridge script, tap Refresh, and Allow local network access if Chrome asks. Desktop browsers cannot reach Termux on the phone.'
+  }
+  return 'Termux bridge not reachable. Run: node termux-bridge.js'
+}
+
+async function probeOrigin(origin: string): Promise<boolean> {
+  const res = await fetch(`${origin}/health`, {
+    method: 'GET',
+    mode: 'cors',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(2500),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json().catch(() => null)
+  return !!(data && data.status === 'ok')
+}
+
+export async function checkTermuxBridge(force = false): Promise<boolean> {
+  if (!force && Date.now() - bridgeCache.checkedAt < 8000) return bridgeCache.available
+  const seen = new Set<string>()
+  const candidates = [getBridgeOrigin(), 'http://127.0.0.1:8080', 'http://localhost:8080']
+    .map(normalizeBridgeOrigin)
+    .filter((o) => {
+      if (seen.has(o)) return false
+      seen.add(o)
+      return true
+    })
+
+  let last = ''
+  for (const origin of candidates) {
+    try {
+      if (await probeOrigin(origin)) {
+        setBridgeOrigin(origin)
+        bridgeError = null
+        bridgeCache = { available: true, checkedAt: Date.now() }
+        return true
+      }
+    } catch (err) {
+      last = explainBridgeError(err)
+    }
+  }
+  bridgeError = last || 'Termux bridge not running'
+  bridgeCache = { available: false, checkedAt: Date.now() }
+  return false
 }
 
 export function clearBridgeCache() {
   bridgeCache = { available: false, checkedAt: 0 }
 }
 
-function termuxLangKey(lang: string): string | null {
-  const map: Record<string, string> = {
-    python: 'python', javascript: 'javascript', typescript: 'typescript',
-    c: 'c', cpp: 'cpp', java: 'java', bash: 'bash', shell: 'shell', sh: 'shell',
-    ruby: 'ruby', php: 'php', go: 'go', rust: 'rust', kotlin: 'kotlin',
-    perl: 'perl', lua: 'lua', swift: 'swift',
+function emptyResult(partial: Partial<ExecuteResult> & Pick<ExecuteResult, 'source' | 'status'>): ExecuteResult {
+  return {
+    success: false,
+    stdout: '',
+    stderr: '',
+    compileOutput: '',
+    executionTime: 0,
+    memoryKb: 0,
+    ...partial,
   }
-  return map[lang] || null
 }
 
 export async function executeInTermux(
@@ -61,43 +124,123 @@ export async function executeInTermux(
   stdin = '',
   files?: Record<string, string>,
   entry?: string,
+  interactive = false,
 ): Promise<ExecuteResult> {
-  const key = termuxLangKey(language)
+  const profile = getLanguageProfile(language)
+  const key = profile.termuxKey
   if (!key) throw new Error(`Termux does not support ${languageName(language)}.`)
+  const packed = filterWorkspaceFiles(files, language, entry || '')
   const t0 = Date.now()
   let res: Response
   try {
     res = await fetch(`${getBridgeOrigin()}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ language: key, code, stdin, files, entry }),
-      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({ language: key, code, stdin, files: packed, entry, interactive }),
+      signal: AbortSignal.timeout(interactive ? 45_000 : FETCH_TIMEOUT_MS),
     })
   } catch {
     clearBridgeCache()
     throw new Error('Termux bridge disconnected. Restart it with: node termux-bridge.js')
   }
-  const data = await res.json()
+
+  let data: Record<string, unknown>
+  try {
+    data = await res.json()
+  } catch {
+    return emptyResult({
+      source: 'termux',
+      status: 'system_error',
+      stderr: 'Termux returned an invalid response.',
+      executionTime: Date.now() - t0,
+    })
+  }
+
   const elapsed = Date.now() - t0
+  const stdout = clipOutput(String(data.stdout || ''))
+  const stderr = clipOutput(String(data.stderr || data.error || ''))
+  const errMsg = typeof data.error === 'string' ? data.error : undefined
 
   if (data.error && !data.success && !data.stdout && !data.stderr) {
-    return { success: false, stdout: '', stderr: '', compileOutput: data.error, status: 'compile_error', executionTime: elapsed, memoryKb: 0, source: 'termux', error: data.error }
+    return {
+      success: false, stdout: '', stderr: '', compileOutput: clipOutput(String(data.error)),
+      status: 'compile_error', executionTime: elapsed, memoryKb: 0, source: 'termux', error: errMsg,
+    }
   }
+
   let status: ExecStatus = data.success ? 'accepted' : 'runtime_error'
   if (data.compileError) status = 'compile_error'
   if (data.timedOut) status = 'time_limit_exceeded'
 
   return {
-    success: data.success,
-    stdout: data.stdout || '',
-    stderr: data.stderr || '',
-    compileOutput: data.compileError ? data.stderr || '' : '',
-    status,
-    executionTime: data.executionTime || elapsed,
+    success: !!data.success,
+    stdout,
+    stderr,
+    compileOutput: data.compileError ? stderr : '',
+    status: data.sessionId && !data.done ? 'accepted' : status,
+    executionTime: Number(data.executionTime) || elapsed,
     memoryKb: 0,
     source: 'termux',
-    error: data.error,
+    error: errMsg,
+    sessionId: typeof data.sessionId === 'string' ? data.sessionId : undefined,
+    interactive: !!data.interactive,
+    done: data.done !== false,
   }
+}
+
+export async function pollTermuxSession(sessionId: string): Promise<ExecuteResult> {
+  const res = await fetch(`${getBridgeOrigin()}/poll?session=${encodeURIComponent(sessionId)}`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(4000),
+  })
+  const data = await res.json().catch(() => ({}))
+  return {
+    success: !!data.success,
+    stdout: clipOutput(String(data.stdout || '')),
+    stderr: clipOutput(String(data.stderr || data.error || '')),
+    compileOutput: '',
+    status: data.timedOut ? 'time_limit_exceeded' : data.done ? (data.success ? 'accepted' : 'runtime_error') : 'accepted',
+    executionTime: Number(data.executionTime) || 0,
+    memoryKb: 0,
+    source: 'termux',
+    sessionId,
+    interactive: true,
+    done: !!data.done || res.status === 404,
+  }
+}
+
+export async function writeTermuxStdin(sessionId: string, text: string): Promise<ExecuteResult> {
+  const res = await fetch(`${getBridgeOrigin()}/stdin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, text }),
+    signal: AbortSignal.timeout(4000),
+  })
+  const data = await res.json().catch(() => ({}))
+  return {
+    success: res.ok,
+    stdout: clipOutput(String(data.stdout || '')),
+    stderr: clipOutput(String(data.stderr || data.error || '')),
+    compileOutput: '',
+    status: 'accepted',
+    executionTime: 0,
+    memoryKb: 0,
+    source: 'termux',
+    sessionId,
+    interactive: true,
+    done: !!data.done,
+  }
+}
+
+export async function killTermuxSession(sessionId: string): Promise<void> {
+  try {
+    await fetch(`${getBridgeOrigin()}/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+      signal: AbortSignal.timeout(3000),
+    })
+  } catch { /* ignore */ }
 }
 
 export interface RunOptions {
@@ -107,7 +250,33 @@ export interface RunOptions {
   memoryLimit: number
 }
 
-/** Full priority-chain execution. Returns a unified result. */
+function previewHint(lang: string): ExecuteResult {
+  return {
+    success: true,
+    stdout: `${languageName(lang)} is a preview language — use the Preview button (eye icon) instead of Run.`,
+    stderr: '',
+    compileOutput: '',
+    status: 'accepted',
+    executionTime: 0,
+    memoryKb: 0,
+    source: 'local',
+  }
+}
+
+function noneHint(lang: string): ExecuteResult {
+  return {
+    success: true,
+    stdout: `${languageName(lang)} files are not executable. Open a Python, JS, C, Java, … file and press Run.`,
+    stderr: '',
+    compileOutput: '',
+    status: 'accepted',
+    executionTime: 0,
+    memoryKb: 0,
+    source: 'local',
+  }
+}
+
+/** Full priority-chain execution. Failures never throw unless the bridge drops. */
 export async function executeCode(
   code: string,
   path: string,
@@ -116,53 +285,67 @@ export async function executeCode(
   files?: Record<string, string>,
 ): Promise<ExecuteResult> {
   const lang = detectLanguage(path)
-  const projectFiles = files && Object.keys(files).length ? files : undefined
-  const hasSiblings = !!(projectFiles && Object.keys(projectFiles).length > 1)
+  const profile = getLanguageProfile(lang)
 
-  // 1. JS/TS run in the browser unless Termux can resolve sibling modules
-  if (canRunLocally(lang) && !(hasSiblings && await checkTermuxBridge())) {
-    const r = await runLocalJavaScript(code, stdin)
+  if (profile.execute === 'preview') return previewHint(lang)
+  if (profile.execute === 'none') return noneHint(lang)
+
+  if (usesInteractiveInput(code, lang) && !stdin.trim() && !(await checkTermuxBridge())) {
     return {
-      success: r.status === 'accepted',
-      stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,
-      status: r.status, executionTime: r.timeMs, memoryKb: r.memoryKb, source: 'local',
+      success: false,
+      stdout: '',
+      stderr: 'This program waits for scanf / input(). Open Terminal → Input and type each answer on its own line (for your stack menu: 1 then a number, then 7 to exit), then Run again. Or connect Termux to type live while it runs.',
+      compileOutput: '',
+      status: 'runtime_error',
+      executionTime: 0,
+      memoryKb: 0,
+      source: 'local',
     }
   }
 
-  // 2. Termux if available — send the whole project so imports work
-  if (await checkTermuxBridge()) {
+  const packed = filterWorkspaceFiles(files, lang, path)
+  const siblingCount = packed ? Object.keys(packed).length : 0
+  const wantsWorkspace = profile.workspace && siblingCount > 1
+
+  if (canRunLocally(lang) && !(wantsWorkspace && await checkTermuxBridge())) {
+    const r = await runLocalJavaScript(code, stdin)
+    return {
+      success: r.status === 'accepted',
+      stdout: clipOutput(r.stdout),
+      stderr: clipOutput(r.stderr),
+      compileOutput: r.compileOutput,
+      status: r.status,
+      executionTime: r.timeMs,
+      memoryKb: r.memoryKb,
+      source: 'local',
+    }
+  }
+
+  if (profile.termuxKey && await checkTermuxBridge()) {
     try {
-      const r = await executeInTermux(code, lang, stdin, projectFiles, path)
-      // If the language is missing in Termux, surface the helpful install
-      // message ("Ran in Termux — attempted locally") instead of silently
-      // falling back. Only connectivity errors (thrown above) fall through.
-      if (!r.error) return r
-      if (r.compileOutput || r.stderr) {
-        return {
-          success: false, stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,
-          status: r.status, executionTime: r.executionTime, memoryKb: 0, source: 'termux', error: r.error,
-        }
-      }
-      // error with no output → treat as missing/unsupported, surface it
+      const r = await executeInTermux(code, lang, stdin, packed, path, usesInteractiveInput(code, lang))
+      // Failed Termux runs still return a result — UI must stay responsive.
       return {
-        success: false, stdout: '', stderr: r.error || '', compileOutput: '', status: 'compile_error',
-        executionTime: r.executionTime, memoryKb: 0, source: 'termux', error: r.error,
+        ...r,
+        stdout: clipOutput(r.stdout),
+        stderr: clipOutput(r.stderr),
+        compileOutput: clipOutput(r.compileOutput),
+        success: !!r.success,
       }
     } catch (err) {
-      // bridge became unavailable — JS can still run in the browser
       void err
       if (canRunLocally(lang)) {
         const r = await runLocalJavaScript(code, stdin)
         return {
           success: r.status === 'accepted',
-          stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,
+          stdout: clipOutput(r.stdout), stderr: clipOutput(r.stderr), compileOutput: r.compileOutput,
           status: r.status, executionTime: r.timeMs, memoryKb: r.memoryKb, source: 'local',
         }
       }
+      // Fall through to Judge0 / mock instead of hanging the UI.
     }
   }
 
-  // 3. Judge0 if key configured
   const judge0Id = judge0IdForLanguage(lang)
   if (judge0Id && opts.apiKey) {
     const token = await judge0.submitCode(code, judge0Id, stdin, {
@@ -172,9 +355,9 @@ export async function executeCode(
     const result = await judge0.pollResult(token, opts.apiKey, opts.baseUrl)
     return {
       success: result.status?.id === 3,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
-      compileOutput: result.compile_output || '',
+      stdout: clipOutput(result.stdout || ''),
+      stderr: clipOutput(result.stderr || ''),
+      compileOutput: clipOutput(result.compile_output || ''),
       status: judge0Status(result.status?.id),
       executionTime: parseFloat(result.time || '0') * 1000,
       memoryKb: result.memory || 0,
@@ -182,7 +365,6 @@ export async function executeCode(
     }
   }
 
-  // 4. Mock fallback
   const m = mockSample(languageName(lang), code)
   return {
     success: true, stdout: m.stdout, stderr: m.stderr, compileOutput: m.compileOutput,

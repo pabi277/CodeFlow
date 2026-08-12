@@ -14,6 +14,12 @@ export function KeyboardToolbar() {
   const kbHeight = useKeyboardHeight()
   const node = activeTabId ? nodeMap[activeTabId] : undefined
   if (!show) return null
+  // On phones the toolbar sits on the home-gesture strip. Only show it while
+  // the soft keyboard is open so a swipe-home cannot tap Undo/Redo.
+  const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+  if (coarse && kbHeight < 48) {
+    return <div aria-hidden className="shrink-0" style={{ height: 0 }} />
+  }
   const lang = node ? detectLanguage(node.path) : 'default'
   const keys = customKeys[lang] || DEFAULT_TOOLBAR_KEYS[lang] || DEFAULT_TOOLBAR_KEYS.default
 
@@ -40,7 +46,7 @@ export function KeyboardToolbar() {
       <div aria-hidden className="shrink-0" style={{ height: 60 + kbHeight }} />
       <div
         className="fixed inset-x-0 z-40 flex items-center gap-1 overflow-x-auto border-t border-border/60 bg-surface px-2 py-1.5 shadow-[0_-2px_8px_rgba(0,0,0,0.1)] transition-[bottom] duration-150 dark:bg-panel [scrollbar-width:none]"
-        style={{ bottom: kbHeight, scrollbarWidth: 'none', paddingBottom: 'max(6px, env(safe-area-inset-bottom))' }}
+        style={{ bottom: kbHeight, scrollbarWidth: 'none', paddingBottom: 'max(10px, env(safe-area-inset-bottom, 0px))' }}
       >
       <button
         onPointerDown={(e) => { e.preventDefault(); triggerCompletion() }}
