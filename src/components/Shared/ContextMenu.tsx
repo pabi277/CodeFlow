@@ -57,29 +57,50 @@ export function ContextMenu() {
 
   const share = async () => {
     if (!node) return
+
     try {
-      const blob = await blobForNode(node)
-      const file = new File([blob], node.name, { type: blob.type || mimeForPath(node.path) })
-      const canShareFile = typeof navigator.share === 'function'
-        && typeof navigator.canShare === 'function'
-        && navigator.canShare({ files: [file] })
-
-      if (canShareFile) {
-        await navigator.share({ title: node.name, files: [file] })
-        return
-      }
-
-      // Older browsers cannot attach files to Web Share. Keep the fallback
-      // useful by sharing the source text, never just the file path.
       if (navigator.share) {
-        await navigator.share({ title: node.name, text: node.content })
-        return
+        // Keep source files as text/plain for maximum compatibility with
+        // Android's file share targets while retaining the real filename.
+        const blob = isDataUrl(node.content) ? await blobForNode(node) : null
+        const file = new File(
+          blob ? [blob] : [node.content],
+          node.name,
+          { type: blob?.type || 'text/plain;charset=utf-8' },
+        )
+        const canShareFile = typeof navigator.canShare === 'function'
+          && navigator.canShare({ files: [file] })
+
+        if (canShareFile) {
+          try {
+            await navigator.share({ title: node.name, files: [file] })
+            showToast(`Shared ${node.name}`, 'success')
+            return
+          } catch (error) {
+            if (isShareCancelled(error)) return
+            // Fall through to text sharing/copying if this browser rejected
+            // the file attachment.
+          }
+        }
+
+        try {
+          await navigator.share({ title: node.name, text: node.content })
+          showToast(`Shared ${node.name} as text`, 'success')
+          return
+        } catch (error) {
+          if (isShareCancelled(error)) return
+        }
       }
 
-      await navigator.clipboard?.writeText(node.content)
-      showToast('File sharing is unavailable — code copied as text', 'info')
-    } catch {
-      // A cancelled share is normal on mobile; do not show an error toast.
+      const copied = await copyText(node.content)
+      showToast(
+        copied
+          ? 'Sharing is unavailable — file content copied as text'
+          : 'Sharing is unavailable in this browser. Use Download file instead.',
+        copied ? 'info' : 'warning',
+      )
+    } catch (error) {
+      showToast((error as Error).message || 'Could not share the file', 'error')
     }
   }
 
@@ -160,6 +181,36 @@ export function ContextMenu() {
       )}
     </>
   )
+}
+
+function isShareCancelled(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'name' in error && error.name === 'AbortError'
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Try the legacy copy path below.
+  }
+
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const copied = document.execCommand('copy')
+    area.remove()
+    return copied
+  } catch {
+    return false
+  }
 }
 
 async function blobForNode(node: FileNode): Promise<Blob> {
