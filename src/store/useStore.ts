@@ -710,7 +710,7 @@ export const useStore = create<StoreState>((set, get) => ({
     // Execution is intentionally batch-based: stdin must be supplied before
     // the process starts. Do not leave beginners staring at a program that is
     // waiting for input they cannot type into after Run was pressed.
-    if (programNeedsInput(lang, node.content) && s.stdin.length === 0) {
+    if (programNeedsInput(lang, node.content) && s.stdin.trim().length === 0) {
       set({ terminalOpen: true, bottomPanelTab: 'terminal', inputPanelOpen: true, running: false, runningFileId: null })
       appendTerminal({
         kind: 'info',

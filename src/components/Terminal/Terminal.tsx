@@ -7,6 +7,7 @@ import { OutlinePanel } from '../OutlinePanel'
 import type { BottomPanelTab } from '../../types'
 import { parseAnsi, stripAnsi } from '../../utils/ansi'
 import { extractTerminalLinks, matchProblems } from '../../utils/problemMatchers'
+import { detectLanguage } from '../../utils/language'
 
 export function TerminalHost() {
   const terminalOpen = useStore((s) => s.terminalOpen)
@@ -52,6 +53,8 @@ function TerminalPanel() {
   const tab = useStore((s) => s.bottomPanelTab)
   const setTab = useStore((s) => s.setBottomPanelTab)
   const diagnostics = useStore((s) => s.diagnostics)
+  const activeTabId = useStore((s) => s.activeTabId)
+  const nodeMap = useStore((s) => s.nodeMap)
   const [showHistory, setShowHistory] = useState(false)
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
   const outputRef = useRef<HTMLDivElement>(null)
@@ -78,6 +81,9 @@ function TerminalPanel() {
   }
 
   const errors = diagnostics.filter((d) => d.severity === 'error').length
+  const activeFile = activeTabId ? nodeMap[activeTabId] : undefined
+  const language = activeFile ? detectLanguage(activeFile.path) : 'plain'
+  const numericInput = ['c', 'cpp', 'java', 'go', 'rust'].includes(language)
 
   return (
     <div ref={parentRef} className="absolute inset-x-0 bottom-0 flex flex-col bg-panel/95 backdrop-blur shadow-modal" style={{ height: `${terminalHeight}%` }}>
@@ -140,12 +146,13 @@ function TerminalPanel() {
           <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Program input</label>
           <p className="mb-2 text-[11px] leading-relaxed text-ink-muted">
             Enter all values before Run, one value per line. The program cannot wait for typing after it starts.
+            {numericInput ? ' For this program, try 10 on the first line and 20 on the second.' : ''}
           </p>
           <textarea
             value={stdin}
             onChange={(e) => setStdin(e.target.value)}
             rows={3}
-            placeholder={'Example:\n5\nhello'}
+            placeholder={numericInput ? 'Example:\n10\n20' : 'Example:\n5\nhello'}
             aria-label="Program input, one value per line"
             className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
           />
