@@ -2,9 +2,10 @@ import { EditorSelection } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { undo, redo, addCursorBelow, selectParentSyntax } from '@codemirror/commands'
 import { openSearchPanel, selectNextOccurrence } from '@codemirror/search'
-import { startCompletion } from '@codemirror/autocomplete'
+import { snippet, startCompletion } from '@codemirror/autocomplete'
 import { expandEmmetInEditor } from '../editor/emmetExpand'
 import { wordAt } from './symbolNav'
+import { toCmSnippet } from './snippets'
 
 // Registry so non-editor components (KeyboardToolbar, CommandPalette) can
 // drive the single mounted CodeMirror instance.
@@ -20,6 +21,15 @@ export function getEditor(): EditorView | null {
 export function insertText(text: string) {
   if (!view) return
   view.dispatch(view.state.replaceSelection(text))
+  view.focus()
+}
+
+/** Insert a snippet with tab-stops (`$1`, `${name}`, `${cursor}` / `$0`). */
+export function insertSnippet(body: string) {
+  if (!view) return
+  const tpl = toCmSnippet(body)
+  const { from, to } = view.state.selection.main
+  snippet(tpl)(view, { label: 'snippet' }, from, to)
   view.focus()
 }
 

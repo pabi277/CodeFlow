@@ -4,6 +4,7 @@
 import { runLocalJavaScript, mockSample } from './mockRunner'
 import * as judge0 from './judge0Service'
 import { judge0IdForLanguage, canRunLocally, languageName, detectLanguage } from '../utils/language'
+import { getBridgeOrigin } from './bridgeUrl'
 import type { ExecStatus } from '../types'
 
 export type ExecutionSource = 'local' | 'termux' | 'judge0' | 'mock'
@@ -20,14 +21,13 @@ export interface ExecuteResult {
   error?: string
 }
 
-const BRIDGE_URL = 'http://127.0.0.1:8080'
 // Cache bridge availability for 30s
 let bridgeCache = { available: false, checkedAt: 0 }
 
 export async function checkTermuxBridge(): Promise<boolean> {
   if (Date.now() - bridgeCache.checkedAt < 30000) return bridgeCache.available
   try {
-    const res = await fetch(`${BRIDGE_URL}/health`, { signal: AbortSignal.timeout(1500) })
+    const res = await fetch(`${getBridgeOrigin()}/health`, { signal: AbortSignal.timeout(1500) })
     // Bridge is considered available only if it answers with { status: "ok" }
     if (res.ok) {
       const data = await res.json().catch(() => null)
@@ -67,7 +67,7 @@ export async function executeInTermux(
   const t0 = Date.now()
   let res: Response
   try {
-    res = await fetch(`${BRIDGE_URL}/execute`, {
+    res = await fetch(`${getBridgeOrigin()}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ language: key, code, stdin, files, entry }),
@@ -121,7 +121,7 @@ export async function executeCode(
 
   // 1. JS/TS run in the browser unless Termux can resolve sibling modules
   if (canRunLocally(lang) && !(hasSiblings && await checkTermuxBridge())) {
-    const r = runLocalJavaScript(code, stdin)
+    const r = await runLocalJavaScript(code, stdin)
     return {
       success: r.status === 'accepted',
       stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,
@@ -152,7 +152,7 @@ export async function executeCode(
       // bridge became unavailable — JS can still run in the browser
       void err
       if (canRunLocally(lang)) {
-        const r = runLocalJavaScript(code, stdin)
+        const r = await runLocalJavaScript(code, stdin)
         return {
           success: r.status === 'accepted',
           stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,

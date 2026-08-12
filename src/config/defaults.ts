@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   stickyScroll: true,
   autoDetectIndent: true,
   customThemes: {},
+  termuxBridgeUrl: 'http://127.0.0.1:8080',
   judge0ApiKey: '',
   judge0BaseUrl: '',
   timeLimit: 5,

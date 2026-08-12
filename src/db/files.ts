@@ -197,6 +197,38 @@ export async function duplicateNode(id: string): Promise<FileNode> {
   return createNode(node.projectId, node.parentId, `copy_${node.name}`, 'file', node.content)
 }
 
+/** Move a file or folder into another folder in the same project. */
+export async function moveNode(id: string, newParentId: string): Promise<void> {
+  const node = await db.files.get(id)
+  if (!node) throw new FileSystemError('Item not found')
+  if (node.path === '/') throw new FileSystemError('Cannot move the project root')
+  if (node.parentId === newParentId) return
+  const dest = await db.files.get(newParentId)
+  if (!dest || dest.type !== 'folder') throw new FileSystemError('Destination must be a folder')
+  if (dest.projectId !== node.projectId) throw new FileSystemError('Cannot move across projects')
+  const subtree = await collectSubtreeIds(id)
+  if (subtree.includes(newParentId)) throw new FileSystemError('Cannot move a folder into itself')
+  for (const sid of dest.childIds) {
+    const s = await db.files.get(sid)
+    if (s && s.name.toLowerCase() === node.name.toLowerCase() && s.type === node.type) {
+      throw new FileSystemError(`A ${node.type} named "${node.name}" already exists there`)
+    }
+  }
+  if (node.parentId) {
+    const old = await db.files.get(node.parentId)
+    if (old) {
+      old.childIds = old.childIds.filter((c) => c !== id)
+      await db.files.put(old)
+    }
+  }
+  dest.childIds = [...dest.childIds, id]
+  dest.modifiedAt = Date.now()
+  await db.files.put(dest)
+  const path = await computePath(node.projectId, newParentId, node.name)
+  await db.files.update(id, { parentId: newParentId, path, modifiedAt: Date.now() })
+  if (node.type === 'folder') await rewriteDescendantPaths(id, path)
+}
+
 export async function getNode(id: string): Promise<FileNode | undefined> {
   return db.files.get(id)
 }

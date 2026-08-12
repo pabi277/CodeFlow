@@ -1,16 +1,15 @@
 // Termux live-preview + multi-file workspace helpers.
 import { filesFromNodeMap, type ProjectFiles } from '../utils/htmlPreview'
-
-export const TERMUX_ORIGIN = 'http://127.0.0.1:8080'
+import { getBridgeOrigin } from './bridgeUrl'
 
 export function previewUrlFor(projectPath: string): string {
   const rel = projectPath.replace(/^\/+/, '')
-  return `${TERMUX_ORIGIN}/preview/${rel}`
+  return `${getBridgeOrigin()}/preview/${rel}`
 }
 
 export async function syncTermuxWorkspace(files: ProjectFiles): Promise<boolean> {
   try {
-    const res = await fetch(`${TERMUX_ORIGIN}/sync`, {
+    const res = await fetch(`${getBridgeOrigin()}/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files }),
@@ -26,7 +25,7 @@ export async function syncTermuxWorkspace(files: ProjectFiles): Promise<boolean>
 
 export async function termuxSupportsPreview(): Promise<boolean> {
   try {
-    const res = await fetch(`${TERMUX_ORIGIN}/health`, { signal: AbortSignal.timeout(1500) })
+    const res = await fetch(`${getBridgeOrigin()}/health`, { signal: AbortSignal.timeout(1500) })
     if (!res.ok) return false
     const data = await res.json().catch(() => null)
     return !!(data && data.status === 'ok' && (data.preview === true || Number.parseFloat(data.version) >= 2))

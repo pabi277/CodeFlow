@@ -25,7 +25,7 @@ import * as settingsDb from '../db/settings'
 import * as editorDb from '../db/editorState'
 import * as historyDb from '../db/executionHistory'
 import { uuid } from '../utils/id'
-import { detectLanguage, languageName } from '../utils/language'
+import { detectLanguage, languageName, canRunLocally } from '../utils/language'
 import * as gitService from '../services/gitService'
 import { executeCode, checkTermuxBridge, clearBridgeCache, type ExecutionSource } from '../services/executionService'
 import { collectProjectFiles, previewUrlFor, syncTermuxWorkspace, termuxSupportsPreview } from '../services/termuxPreview'
@@ -42,10 +42,37 @@ import { replaceInText } from '../utils/projectSearch'
 import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorApi'
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
+import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
+import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
-export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' }
+export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }
+
+const TAB_SYNC_ID = uuid()
+const syncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('codeflow-sync') : null
+if (syncChannel) {
+  syncChannel.onmessage = (ev: MessageEvent) => {
+    const msg = ev.data as { source?: string; type?: string; projectId?: string } | null
+    if (!msg || msg.source === TAB_SYNC_ID) return
+    if (msg.type === 'files' && msg.projectId && msg.projectId === useStore.getState().activeProjectId) {
+      void useStore.getState().refreshProject()
+    }
+  }
+}
+
+function toastMs(type: Toast['type']): number {
+  if (type === 'error') return 6000
+  if (type === 'warning') return 5000
+  if (type === 'success') return 2500
+  return 3500
+}
+
+function requireOnline(): boolean {
+  if (!useStore.getState().offline) return true
+  useStore.getState().showToast('You are offline — GitHub sync is paused until you reconnect.', 'warning')
+  return false
+}
 
 interface StoreState {
   // bootstrap
@@ -63,6 +90,9 @@ interface StoreState {
   pinnedTabs: string[]
   dirtyTabs: Record<string, boolean>
   zenMode: boolean
+  cursorPositions: Record<string, { line: number; col: number }>
+  scrollPositions: Record<string, number>
+  lastSaved: Record<string, string>
 
   // settings
   settings: AppSettings
@@ -241,6 +271,10 @@ interface StoreState {
   persistEditorState: () => Promise<void>
   saveActiveEditorCursor: (id: string, cursor: { line: number; col: number }) => void
   saveActiveEditorScroll: (id: string, top: number) => void
+  moveNode: (id: string, newParentId: string) => Promise<void>
+  revertToSaved: (id: string) => Promise<void>
+  cycleTab: (dir: 1 | -1) => void
+  convertActiveLineEnding: (to: LineEnding) => void
 
   // execution
   runCurrentFile: () => Promise<void>
@@ -286,6 +320,9 @@ export const useStore = create<StoreState>((set, get) => ({
   pinnedTabs: [],
   dirtyTabs: {},
   zenMode: false,
+  cursorPositions: {},
+  scrollPositions: {},
+  lastSaved: {},
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
@@ -383,7 +420,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showToast: (message, type = 'info') => {
     const id = uuid()
     set((s) => ({ toasts: [...s.toasts, { id, message, type }] }))
-    setTimeout(() => get().dismissToast(id), 3000)
+    setTimeout(() => get().dismissToast(id), toastMs(type))
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setOffline: (v) => set({ offline: v }),
@@ -398,7 +435,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const nodeMap: Record<string, FileNode> = {}
     for (const n of nodes) nodeMap[n.id] = n
     const rootId = getRootNodeId(nodeMap)
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [] })
+    const lastSaved: Record<string, string> = {}
+    for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
+    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved })
     await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
@@ -557,7 +596,8 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }
       await fsDb.updateContent(id, node.content)
-      set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false } }))
+      set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false }, lastSaved: { ...s.lastSaved, [id]: node.content } }))
+      syncChannel?.postMessage({ source: TAB_SYNC_ID, type: 'files', projectId: get().activeProjectId })
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -568,16 +608,67 @@ export const useStore = create<StoreState>((set, get) => ({
       openTabIds: get().openTabs,
       activeTabId: get().activeTabId,
       pinnedTabIds: get().pinnedTabs,
-      cursorPositions: {},
-      scrollPositions: {},
+      cursorPositions: get().cursorPositions,
+      scrollPositions: get().scrollPositions,
       terminalOpen: get().terminalOpen,
       terminalHeight: get().terminalHeight,
     }
     await editorDb.saveEditorState(state)
   },
 
-  saveActiveEditorCursor: (_id, _cursor) => {},
-  saveActiveEditorScroll: (_id, _top) => {},
+  saveActiveEditorCursor: (id, cursor) => {
+    set((s) => ({ cursorPositions: { ...s.cursorPositions, [id]: cursor } }))
+  },
+  saveActiveEditorScroll: (id, top) => {
+    set((s) => ({ scrollPositions: { ...s.scrollPositions, [id]: top } }))
+  },
+  moveNode: async (id, newParentId) => {
+    try {
+      await fsDb.moveNode(id, newParentId)
+      await get().refreshProject()
+      get().showToast('Moved', 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  revertToSaved: async (id) => {
+    const saved = get().lastSaved[id]
+    const node = get().nodeMap[id]
+    if (!node) return
+    if (saved == null) {
+      get().showToast('Nothing to revert — file has not been saved this session', 'info')
+      return
+    }
+    if (saved === node.content) {
+      get().showToast('Already matches last save', 'info')
+      return
+    }
+    get().saveContent(id, saved)
+    if (get().activeTabId === id) replaceDocument(saved)
+    await get().persistContent(id)
+    get().showToast('Reverted to last save', 'success')
+  },
+  cycleTab: (dir) => {
+    const { openTabs, activeTabId } = get()
+    if (openTabs.length < 2) return
+    const i = Math.max(0, openTabs.indexOf(activeTabId || ''))
+    const next = openTabs[(i + dir + openTabs.length) % openTabs.length]
+    set({ activeTabId: next })
+  },
+  convertActiveLineEnding: (to) => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!id || !node) return
+    const next = convertLineEnding(node.content, to)
+    if (next === node.content) {
+      get().showToast(`Already ${to.toUpperCase()}`, 'info')
+      return
+    }
+    replaceDocument(next)
+    get().saveContent(id, next)
+    void get().persistContent(id)
+    get().showToast(`Converted to ${to.toUpperCase()}`, 'success')
+  },
 
   runCurrentFile: async () => {
     const s = get()
@@ -591,11 +682,11 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Open a file to run it', 'info')
       return
     }
-    if (s.offline) {
+    const lang = detectLanguage(node.path)
+    if (s.offline && !canRunLocally(lang)) {
       get().showToast('Code execution requires internet connection. Your code is saved and will run when you are back online.', 'info')
       return
     }
-    const lang = detectLanguage(node.path)
     set({ running: true, runningFileId: node.id, terminalOpen: true })
     appendTerminal({ kind: 'system', text: `Running ${node.name} (${languageName(lang)})…` })
     const start = Date.now()
@@ -659,6 +750,11 @@ export const useStore = create<StoreState>((set, get) => ({
   updateSettings: async (patch) => {
     const next = await settingsDb.updateSettings({ ...get().settings, ...patch })
     set({ settings: next })
+    if (patch.termuxBridgeUrl !== undefined) {
+      setBridgeOrigin(next.termuxBridgeUrl)
+      clearBridgeCache()
+      void get().refreshTermuxStatus()
+    }
   },
 
   // ---- GitHub actions ----
@@ -695,6 +791,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   cloneRepo: async (repo) => {
+    if (!requireOnline()) return
     set({ cloneProgress: { label: 'Starting…', done: 0, total: 0 } })
     try {
       const name = repo.name
@@ -711,6 +808,7 @@ export const useStore = create<StoreState>((set, get) => ({
   openCommit: () => { set({ commitOpen: true }); get().refreshGitStatus() },
   closeCommit: () => set({ commitOpen: false }),
   doCommit: async (message, includeIds, push) => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid || !message.trim()) return
     try {
@@ -759,6 +857,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   doDeleteBranch: async (name) => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
@@ -809,6 +908,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().showToast('Changes discarded', 'success')
   },
   doPull: async () => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     set({ pulling: true })

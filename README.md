@@ -109,6 +109,10 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **Create / delete Git branches** + **conflict resolver** + **side-by-side diff** | ✅ |
 | **ANSI colors + clickable paths** in the terminal | ✅ |
 | **Import a VS Code theme JSON** | ✅ |
+| **Async JS sandbox** — top-level await + timers | ✅ |
+| **Move files**, persist cursor/scroll, LF/CRLF toggle | ✅ |
+| **Snippet tab-stops**, HTML auto-close tags, image preview | ✅ |
+| **Configurable Termux URL**, offline Git guards, `.editorconfig` | ✅ |
 
 ## 🧱 Architecture
 

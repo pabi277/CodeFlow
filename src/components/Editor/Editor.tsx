@@ -26,8 +26,11 @@ import { extractLocalSymbols } from '../../editor/completions/localSymbols'
 import { useStore } from '../../store/useStore'
 import { detectLanguage } from '../../utils/language'
 import { detectIndent } from '../../utils/detectIndent'
+import { editorConfigForProject } from '../../utils/editorConfig'
+import { isBinaryPath, isDataUrl, isImagePath } from '../../utils/binary'
 import { wordAt } from '../../utils/symbolNav'
 import { loadLanguageExtension } from '../../editor/editorLanguages'
+import { BinaryPreview } from './BinaryPreview'
 import { editorExtensionsForPalette } from '../../editor/themes'
 import { resolvePalette } from '../../utils/theme'
 import { FONT_FAMILIES } from '../../config/defaults'
@@ -76,12 +79,23 @@ export function Editor() {
     debouncedSave.current = saveTimer
     const diagTimer = debounce(() => useStore.getState().refreshDiagnostics(), 400)
 
+    const persistPos = debounce(() => {
+      const id = activeTabRef.current
+      const v = viewRef.current
+      if (!id || !v) return
+      const pos = v.state.selection.main.head
+      const line = v.state.doc.lineAt(pos)
+      useStore.getState().saveActiveEditorCursor(id, { line: line.number, col: pos - line.from + 1 })
+      useStore.getState().saveActiveEditorScroll(id, v.scrollDOM.scrollTop)
+    }, 250)
+
     const updateListener = EditorView.updateListener.of((update) => {
       const pos = update.state.selection.main.head
       const line = update.state.doc.lineAt(pos)
       const next = { line: line.number, col: pos - line.from + 1 }
       const prev = useStore.getState().cursorPos
       if (prev.line !== next.line || prev.col !== next.col) useStore.getState().setCursorPos(next)
+      if (update.selectionSet || update.viewportChanged) persistPos()
       if (!update.docChanged) return
       const id = activeTabRef.current
       if (!id) return
@@ -238,6 +252,11 @@ export function Editor() {
     if (pending && pending.fileId === activeTabId) {
       goToPosition(pending.line, pending.col)
       useStore.getState().clearPendingGoTo()
+    } else if (activeTabId && current !== content && !keepSelection) {
+      const saved = useStore.getState().cursorPositions[activeTabId]
+      if (saved) goToPosition(saved.line, saved.col)
+      const top = useStore.getState().scrollPositions[activeTabId]
+      if (typeof top === 'number') view.scrollDOM.scrollTop = top
     }
   }, [activeTabId, nodeMap])
 
@@ -298,6 +317,11 @@ export function Editor() {
         spaces = guessed.indentWithSpaces
       }
     }
+    if (activePath) {
+      const fromEc = editorConfigForProject(Object.values(nodeMap), activePath)
+      if (fromEc.tabSize) tabSize = fromEc.tabSize
+      if (fromEc.indentWithSpaces !== undefined) spaces = fromEc.indentWithSpaces
+    }
     const tabSizeExt = spaces ? indentUnit.of(' '.repeat(tabSize)) : EditorState.tabSize.of(tabSize)
     view.dispatch({ effects: indentComp.current.reconfigure(tabSizeExt) })
 
@@ -337,10 +361,12 @@ export function Editor() {
 
   const node = activeTabId ? nodeMap[activeTabId] : undefined
   const hasFile = !!node
+  const binary = !!(node && (isImagePath(node.path) || isBinaryPath(node.path) || isDataUrl(node.content)))
 
   return (
     <div className="relative flex h-full w-full">
-      <div ref={containerRef} className="h-full min-w-0 flex-1 overflow-hidden bg-transparent" />
+      <div ref={containerRef} className={`h-full min-w-0 flex-1 overflow-hidden bg-transparent ${binary ? 'hidden' : ''}`} />
+      {binary && node && <div className="h-full min-w-0 flex-1"><BinaryPreview path={node.path} content={node.content} /></div>}
       <StickyScroll />
       {hasFile && settings.showMinimap && <Minimap />}
       {!hasFile && (

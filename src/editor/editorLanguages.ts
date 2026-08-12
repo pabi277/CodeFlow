@@ -14,7 +14,7 @@ const loaders: Record<string, Loader> = {
   c: () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
   cpp: () => import('@codemirror/lang-cpp').then((m) => m.cpp()),
   java: () => import('@codemirror/lang-java').then((m) => m.java()),
-  html: () => import('@codemirror/lang-html').then((m) => m.html()),
+  html: () => import('@codemirror/lang-html').then((m) => m.html({ autoCloseTags: true })),
   css: () => import('@codemirror/lang-css').then((m) => m.css()),
   json: () => import('@codemirror/lang-json').then((m) => m.json()),
   markdown: () => import('@codemirror/lang-markdown').then((m) => m.markdown()),

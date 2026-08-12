@@ -86,6 +86,7 @@ export interface AppSettings {
   autoDetectIndent: boolean
   /** User-imported VS Code themes, keyed by slug */
   customThemes: Record<string, ThemePalette>
+  termuxBridgeUrl: string
   judge0ApiKey: string
   judge0BaseUrl: string
   timeLimit: number

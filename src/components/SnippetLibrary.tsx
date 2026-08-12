@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
-import { insertText } from '../utils/editorApi'
+import { insertSnippet } from '../utils/editorApi'
 import { FiChevronLeft, FiPlus, FiTrash2, FiCopy } from 'react-icons/fi'
 import { LANG_LABELS } from '../config/labels'
 
@@ -28,13 +28,8 @@ export function SnippetLibrary() {
   }
 
   const insert = (body: string) => {
-    const withCursor = body.includes('${cursor}')
-    const final = body.replace('${cursor}', '')
-    insertText(final)
+    insertSnippet(body)
     close(false)
-    if (withCursor) {
-      // best-effort: place caret at end (mobile); placeholder positions are advanced
-    }
   }
 
   return (
@@ -67,7 +62,7 @@ export function SnippetLibrary() {
               <option value="">Any language</option>
               {Object.entries(LANG_LABELS).filter(([k]) => k !== 'default').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} placeholder="Code body… use ${cursor} to mark the caret position" className="w-full resize-none rounded-lg border border-ink/15 bg-input px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent" />
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} placeholder={"Code body… ${cursor} or $1 / ${name} tab-stops"} className="w-full resize-none rounded-lg border border-ink/15 bg-input px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent" />
             <div className="flex gap-2">
               <button onClick={save} className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white">Save Snippet</button>
               <button onClick={() => setCreating(false)} className="flex-1 rounded-lg border border-ink/15 px-3 py-2 text-sm text-ink">Cancel</button>

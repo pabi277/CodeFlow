@@ -8,6 +8,11 @@ import { wordAt, findDefinitions, findReferences, renameInText, filterSymbols } 
 import { matchImportContext, suggestImportPaths } from '../src/utils/importPaths'
 import { parseThemeText } from '../src/utils/themeImport'
 import { indentPasted } from '../src/editor/pasteIndent'
+import { detectLineEnding, convertLineEnding } from '../src/utils/lineEnding'
+import { parseEditorConfig, matchEditorConfig } from '../src/utils/editorConfig'
+import { toCmSnippet } from '../src/utils/snippets'
+import { normalizeBridgeOrigin } from '../src/services/bridgeUrl'
+import { runLocalJavaScript } from '../src/services/mockRunner'
 
 let pass = 0
 let fail = 0
@@ -16,7 +21,7 @@ function ok(cond: boolean, msg: string) {
   else { fail++; console.error(`  ❌ ${msg}`) }
 }
 
-function main() {
+async function main() {
   console.log('\n[detectIndent]')
   const two = detectIndent('function x() {\n  return 1\n  if (true) {\n    return 2\n  }\n}\n')
   ok(!!two && two.indentWithSpaces && two.tabSize === 2, `detects 2-space indent (got ${JSON.stringify(two)})`)
@@ -78,7 +83,30 @@ function main() {
   const pasted = indentPasted('    foo()\n    bar()\n', '  ')
   ok(pasted === 'foo()\n  bar()\n', `reindents pasted block (got ${JSON.stringify(pasted)})`)
 
+  console.log('\n[lineEnding]')
+  ok(detectLineEnding('a\r\nb\r\n') === 'crlf', 'detects CRLF')
+  ok(detectLineEnding('a\nb\n') === 'lf', 'detects LF')
+  ok(convertLineEnding('a\nb', 'crlf') === 'a\r\nb', 'converts to CRLF')
+  ok(convertLineEnding('a\r\nb', 'lf') === 'a\nb', 'converts to LF')
+
+  console.log('\n[editorConfig]')
+  const sections = parseEditorConfig('[*]\nindent_style = space\nindent_size = 2\n[*.py]\nindent_size = 4\n')
+  ok(matchEditorConfig('app.js', sections).tabSize === 2, 'js gets * indent 2')
+  ok(matchEditorConfig('main.py', sections).tabSize === 4, 'py overrides to 4')
+
+  console.log('\n[snippets]')
+  ok(toCmSnippet('foo${cursor}bar').includes('${}'), 'converts ${cursor}')
+  ok(toCmSnippet('hello$0').includes('${}'), 'converts $0')
+
+  console.log('\n[bridgeUrl]')
+  ok(normalizeBridgeOrigin('http://127.0.0.1:9090/') === 'http://127.0.0.1:9090', 'normalizes origin')
+  ok(normalizeBridgeOrigin('not a url') === 'http://127.0.0.1:8080', 'falls back on junk')
+
+  console.log('\n[async js sandbox]')
+  const r = await runLocalJavaScript('await Promise.resolve(1); console.log("ok", 1+1)', '')
+  ok(r.status === 'accepted' && r.stdout.includes('ok 2'), `top-level await works (got ${JSON.stringify(r)})`)
+
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
   process.exit(fail ? 1 : 0)
 }
-main()
+main().catch((e) => { console.error(e); process.exit(1) })

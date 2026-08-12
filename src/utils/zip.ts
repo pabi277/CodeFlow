@@ -2,6 +2,7 @@
 // add to the bundle when the user actually exports or imports a project.
 
 import { listAllInProject } from '../db/files'
+import { fileToStoredContent, isBinaryPath, isImagePath, mimeForPath } from './binary'
 
 /**
  * Export a project's files as a downloadable .zip archive.
@@ -38,8 +39,13 @@ export async function parseZipFile(file: File | Blob | ArrayBuffer): Promise<{ p
   const out: { path: string; content: string }[] = []
   const entries = Object.values(zip.files).filter((e) => !e.dir)
   for (const e of entries) {
-    const content = await e.async('string')
-    out.push({ path: e.name, content })
+    if (isImagePath(e.name) || isBinaryPath(e.name)) {
+      const b64 = await e.async('base64')
+      out.push({ path: e.name, content: `data:${mimeForPath(e.name)};base64,${b64}` })
+    } else {
+      const content = await e.async('string')
+      out.push({ path: e.name, content })
+    }
   }
   return out
 }
@@ -56,7 +62,7 @@ export async function filesToEntries(files: FileList | File[]): Promise<{ path: 
     let rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
     if (!rel) rel = f.name
     rel = rel.replace(/\\/g, '/')
-    const content = await f.text()
+    const content = await fileToStoredContent(f)
     out.push({ path: rel, content })
   }
   return out

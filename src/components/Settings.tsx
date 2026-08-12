@@ -286,6 +286,16 @@ export function Settings() {
             />
             <p className="mt-1 text-[11px] text-ink-muted">Without a key, JavaScript runs locally; other languages show sample output.</p>
           </div>
+          <div className="py-2.5">
+            <label className="mb-1 block text-[12px] text-ink-muted">Termux bridge URL</label>
+            <input
+              value={settings.termuxBridgeUrl || 'http://127.0.0.1:8080'}
+              onChange={(e) => update({ termuxBridgeUrl: e.target.value })}
+              placeholder="http://127.0.0.1:8080"
+              className="w-full rounded-lg border border-ink/15 bg-input px-3 py-2.5 font-mono text-[13px] text-ink outline-none focus:border-accent"
+            />
+            <p className="mt-1 text-[11px] text-ink-muted">Only change this if your Termux bridge listens on another host or port.</p>
+          </div>
           <div className="flex items-center justify-between py-2.5">
             <span className="text-[14px] text-ink">Time limit · {settings.timeLimit}s</span>
             <input type="range" min={1} max={10} value={settings.timeLimit} onChange={(e) => update({ timeLimit: Number(e.target.value) })} className="w-40 accent-[var(--accent)]" />

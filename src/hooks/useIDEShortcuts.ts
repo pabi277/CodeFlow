@@ -98,10 +98,14 @@ export function useIDEShortcuts() {
       }
       if (e.key === 'Escape') {
         if (store.commandPaletteOpen) store.setCommandPalette(false)
+        else if (store.symbolSearchOpen) store.setSymbolSearchOpen(false)
+        else if (store.referencesOpen) store.setReferencesOpen(false)
+        else if (store.renameOpen) store.closeRename()
         else if (store.shortcutsOpen) store.setShortcutsOpen(false)
         else if (store.welcomeOpen) store.setWelcomeOpen(false)
         else if (store.goToLineOpen) store.setGoToLineOpen(false)
         else if (store.settingsOpen) store.setSettingsOpen(false)
+        else if (store.zenMode) store.toggleZen()
         else if (store.drawerOpen) store.toggleDrawer(false)
       }
     }

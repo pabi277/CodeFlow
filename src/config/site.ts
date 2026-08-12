@@ -19,6 +19,7 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'Ctrl/Cmd+B', action: 'Toggle file explorer' },
   { keys: 'Ctrl/Cmd+J', action: 'Toggle terminal' },
   { keys: 'Ctrl/Cmd+K Z', action: 'Toggle zen mode' },
+  { keys: 'Ctrl/Cmd+Tab', action: 'Cycle editor tabs' },
   { keys: 'F12 / Ctrl+Click', action: 'Go to definition' },
   { keys: 'Shift+F12', action: 'Find all references' },
   { keys: 'F2', action: 'Rename symbol' },
