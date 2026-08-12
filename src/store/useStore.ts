@@ -383,26 +383,36 @@ export const useStore = create<StoreState>((set, get) => ({
   referencesOpen: false,
 
   bootstrap: async () => {
-    const [projects, settings, editorState, auth] = await Promise.all([
+    const [projects, settings, editorState, storedAuth] = await Promise.all([
       projectsDb.listProjects(),
       settingsDb.loadSettings(),
       editorDb.loadEditorState(),
       authService.loadStoredAuth(),
     ])
-    // handle OAuth redirect if present
-    if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
+    let auth = storedAuth
+
+    // Handle OAuth redirects both on the explicit callback route and on hosts
+    // that fall back to the SPA entry point before the route rewrite runs.
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.pathname === '/auth/callback' || window.location.search.includes('code='))
+    ) {
       try {
         const cbAuth = await authService.handleOAuthCallback()
-        if (cbAuth) set({ auth: cbAuth })
+        if (cbAuth) {
+          auth = cbAuth
+          get().showToast('Connected to GitHub', 'success')
+        }
       } catch (err) {
-        // swallow; toast on next render
+        get().showToast(authService.oauthErrorMessage(err), 'error')
       }
     }
-    // restore a project
+
+    // Restore a project.
     const active = projects.length ? projects[0] : null
-    set({ projects, settings, auth, booted: true })
+    set({ projects, settings, auth, booted: true, cursorPositions: editorState.cursorPositions || {}, scrollPositions: editorState.scrollPositions || {} })
     await get().setActiveProject(active?.id ?? null)
-    // restore tabs
+    // Restore tabs and editor chrome state.
     if (editorState.openTabIds.length) {
       set({
         openTabs: editorState.openTabIds,
@@ -503,7 +513,10 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().persistEditorState()
   },
 
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) => {
+    set({ activeTabId: id })
+    void get().persistEditorState()
+  },
 
   createNode: async (parentId, type, name) => {
     const pid = get().activeProjectId
@@ -618,9 +631,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
   saveActiveEditorCursor: (id, cursor) => {
     set((s) => ({ cursorPositions: { ...s.cursorPositions, [id]: cursor } }))
+    void get().persistEditorState()
   },
   saveActiveEditorScroll: (id, top) => {
     set((s) => ({ scrollPositions: { ...s.scrollPositions, [id]: top } }))
+    void get().persistEditorState()
   },
   moveNode: async (id, newParentId) => {
     try {
@@ -760,14 +775,21 @@ export const useStore = create<StoreState>((set, get) => ({
   // ---- GitHub actions ----
   connectGitHub: () => {
     try { navigator.vibrate?.(10) } catch {}
-    authService.beginOAuth()
+    try {
+      authService.beginOAuth()
+    } catch (err) {
+      get().showToast(authService.oauthErrorMessage(err), 'error')
+    }
   },
   handleCallback: async () => {
     try {
       const auth = await authService.handleOAuthCallback()
-      if (auth) set({ auth })
+      if (auth) {
+        set({ auth })
+        get().showToast('Connected to GitHub', 'success')
+      }
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(authService.oauthErrorMessage(err), 'error')
     }
   },
   disconnectGitHub: async () => {

@@ -2,6 +2,7 @@ import { useStore } from '../store/useStore'
 import { detectLanguage, languageName } from '../utils/language'
 import { detectLineEnding, lineEndingLabel, type LineEnding } from '../utils/lineEnding'
 import { VscError, VscWarning } from 'react-icons/vsc'
+import { useHorizontalScrollClickGuard } from '../hooks/useHorizontalScrollClickGuard'
 
 export function StatusBar() {
   const enabled = useStore((s) => s.settings.showStatusBar)
@@ -12,6 +13,7 @@ export function StatusBar() {
   const diagnostics = useStore((s) => s.diagnostics)
   const setGoToLineOpen = useStore((s) => s.setGoToLineOpen)
   const openBottomPanel = useStore((s) => s.openBottomPanel)
+  const touchGuard = useHorizontalScrollClickGuard()
 
   if (!enabled) return null
 
@@ -28,7 +30,12 @@ export function StatusBar() {
   }
 
   return (
-    <footer role="status" className="flex h-6 shrink-0 items-center gap-3 overflow-x-auto border-t border-border/50 bg-surface px-2 text-[11px] text-ink-muted dark:bg-panel [scrollbar-width:none]">
+    <footer
+      role="status"
+      {...touchGuard}
+      className="flex h-6 shrink-0 items-center gap-3 overflow-x-auto border-t border-border/50 bg-surface px-2 text-[11px] text-ink-muted dark:bg-panel [scrollbar-width:none]"
+      style={{ touchAction: 'pan-x' }}
+    >
       <button onClick={() => setGoToLineOpen(true)} className="shrink-0 rounded px-1 hover:text-ink" aria-label="Go to line">
         Ln {cursorPos.line}, Col {cursorPos.col}
       </button>

@@ -40,6 +40,13 @@ import { VscCode } from 'react-icons/vsc'
 import { Minimap } from './Minimap'
 import { StickyScroll } from './StickyScroll'
 
+function saveEditorPosition(id: string, view: EditorView) {
+  const pos = view.state.selection.main.head
+  const line = view.state.doc.lineAt(pos)
+  useStore.getState().saveActiveEditorCursor(id, { line: line.number, col: pos - line.from + 1 })
+  useStore.getState().saveActiveEditorScroll(id, view.scrollDOM.scrollTop)
+}
+
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -68,7 +75,9 @@ export function Editor() {
   const diagnostics = useStore((s) => s.diagnostics)
   const persistRef = useRef(persistContent)
   persistRef.current = persistContent
-  const debouncedSave = useRef<((id: string) => void) | null>(null)
+  const activeTabRef = useRef(activeTabId)
+  activeTabRef.current = activeTabId
+  const loadedTabRef = useRef<string | null>(null)
 
   // Mount the CodeMirror view once
   useEffect(() => {
@@ -76,17 +85,11 @@ export function Editor() {
     if (!container) return
 
     const saveTimer = debounce((id: string) => persistRef.current(id), settings.autoSaveDelay)
-    debouncedSave.current = saveTimer
     const diagTimer = debounce(() => useStore.getState().refreshDiagnostics(), 400)
 
-    const persistPos = debounce(() => {
-      const id = activeTabRef.current
-      const v = viewRef.current
-      if (!id || !v) return
-      const pos = v.state.selection.main.head
-      const line = v.state.doc.lineAt(pos)
-      useStore.getState().saveActiveEditorCursor(id, { line: line.number, col: pos - line.from + 1 })
-      useStore.getState().saveActiveEditorScroll(id, v.scrollDOM.scrollTop)
+    const persistPos = debounce((id: string, cursor: { line: number; col: number }, top: number) => {
+      useStore.getState().saveActiveEditorCursor(id, cursor)
+      useStore.getState().saveActiveEditorScroll(id, top)
     }, 250)
 
     const updateListener = EditorView.updateListener.of((update) => {
@@ -95,10 +98,13 @@ export function Editor() {
       const next = { line: line.number, col: pos - line.from + 1 }
       const prev = useStore.getState().cursorPos
       if (prev.line !== next.line || prev.col !== next.col) useStore.getState().setCursorPos(next)
-      if (update.selectionSet || update.viewportChanged) persistPos()
-      if (!update.docChanged) return
       const id = activeTabRef.current
-      if (!id) return
+      if (id && (update.selectionSet || update.viewportChanged)) {
+        // Capture the position now. If the user switches tabs before the
+        // debounce fires, the delayed write must still belong to this tab.
+        persistPos(id, next, update.view.scrollDOM.scrollTop)
+      }
+      if (!update.docChanged || !id) return
       const text = update.state.doc.toString()
       saveContent(id, text)
       saveTimer(id)
@@ -230,34 +236,47 @@ export function Editor() {
     }
   }, [focusEditorRequest])
 
-  // Track active file id for the change listener
-  const activeTabRef = useRef(activeTabId)
-  activeTabRef.current = activeTabId
-
-  // Update document when active tab changes
+  // Update the document when the active tab changes and restore its saved
+  // cursor/scroll position. The loaded-tab ref lets two files with identical
+  // contents keep distinct editor positions.
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
+
+    const previousTabId = loadedTabRef.current
+    const tabChanged = previousTabId !== activeTabId
+    if (previousTabId && tabChanged) saveEditorPosition(previousTabId, view)
+
     const node = activeTabId ? nodeMap[activeTabId] : undefined
     const content = node?.content || ''
     const current = view.state.doc.toString()
     const pending = useStore.getState().pendingGoTo
     const keepSelection = !!(pending && pending.fileId === activeTabId)
-    if (current !== content) {
+    const documentChanged = current !== content
+
+    if (documentChanged) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
         ...(keepSelection ? {} : { selection: EditorSelection.cursor(0), scrollIntoView: true }),
       })
     }
+
     if (pending && pending.fileId === activeTabId) {
       goToPosition(pending.line, pending.col)
       useStore.getState().clearPendingGoTo()
-    } else if (activeTabId && current !== content && !keepSelection) {
+    } else if (activeTabId && tabChanged && !keepSelection) {
       const saved = useStore.getState().cursorPositions[activeTabId]
-      if (saved) goToPosition(saved.line, saved.col)
+      if (saved) {
+        goToPosition(saved.line, saved.col)
+      } else if (!documentChanged) {
+        view.dispatch({ selection: EditorSelection.cursor(0), scrollIntoView: true })
+      }
+
       const top = useStore.getState().scrollPositions[activeTabId]
-      if (typeof top === 'number') view.scrollDOM.scrollTop = top
+      view.scrollDOM.scrollTop = typeof top === 'number' ? top : 0
     }
+
+    loadedTabRef.current = activeTabId
   }, [activeTabId, nodeMap])
 
   // Reconfigure language + completion source when the active file changes

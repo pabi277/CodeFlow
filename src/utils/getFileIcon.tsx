@@ -54,27 +54,27 @@ const LANG_ICONS: Record<string, IconType> = {
 const FILE_ICON: IconType = AiOutlineFile
 const CONFIG_ICON: IconType = VscCode
 
-const ICON_COLOR: Record<string, string> = {
+const LANG_COLORS: Record<string, string> = {
   js: 'text-yellow-400', jsx: 'text-yellow-400', mjs: 'text-yellow-400',
-  ts: 'text-sky-400', tsx: 'text-sky-400',
-  py: 'text-blue-400',
+  ts: 'text-blue-400', tsx: 'text-blue-400',
+  py: 'text-blue-500',
   java: 'text-orange-400',
-  c: 'text-blue-300', h: 'text-blue-300',
-  cpp: 'text-blue-300', cc: 'text-blue-300', hpp: 'text-blue-300',
+  c: 'text-slate-400', h: 'text-slate-400',
+  cpp: 'text-pink-400', cc: 'text-pink-400', hpp: 'text-pink-400',
   html: 'text-orange-500', htm: 'text-orange-500',
-  css: 'text-sky-500', scss: 'text-pink-400', less: 'text-indigo-400',
+  css: 'text-sky-400', scss: 'text-pink-400', less: 'text-indigo-400',
   go: 'text-cyan-400',
-  rs: 'text-orange-300',
+  rs: 'text-orange-400',
   rb: 'text-red-400',
-  php: 'text-violet-400',
-  swift: 'text-orange-400',
-  kt: 'text-purple-400',
-  md: 'text-ink-muted',
-  json: 'text-amber-300',
+  php: 'text-purple-400',
+  swift: 'text-orange-500',
+  kt: 'text-purple-300',
+  md: 'text-slate-300', markdown: 'text-slate-300',
+  json: 'text-yellow-300',
   sql: 'text-emerald-400',
   vue: 'text-emerald-400',
   yaml: 'text-rose-300', yml: 'text-rose-300',
-  sh: 'text-green-400', bash: 'text-green-400',
+  sh: 'text-green-400', bash: 'text-green-400', zsh: 'text-green-400',
 }
 
 export interface FileIconResult {
@@ -99,7 +99,7 @@ export function getFileIcon(
   const ext = getExtension(fileName)
   const langIcon = LANG_ICONS[ext]
   if (langIcon) {
-    return { Icon: langIcon, colorClass: ICON_COLOR[ext] || 'text-sky-400' }
+    return { Icon: langIcon, colorClass: LANG_COLORS[ext] || 'text-sky-400' }
   }
   if (/\.(yaml|yml|xml|toml|ini|conf|config)$/i.test(fileName)) {
     return { Icon: CONFIG_ICON, colorClass: 'text-slate-400' }

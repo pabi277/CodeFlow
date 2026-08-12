@@ -59,7 +59,9 @@ export async function getRateLimit(token: string): Promise<{ remaining: number; 
 
 function decodeBase64(s: string): string {
   try {
-    return atob(s.replace(/\s/g, ''))
+    const binary = atob(s.replace(/\s/g, ''))
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
   } catch {
     return s
   }

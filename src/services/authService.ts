@@ -1,23 +1,52 @@
 // GitHub OAuth token management.
 //
-// SECURITY: The code<->token exchange REQUIRES the client secret, which must
-// never ship in frontend code. This app therefore delegates that single step to
-// a small backend proxy (see /worker — a Cloudflare Worker). The frontend only
-// ever holds the access token, which is stored in IndexedDB (never localStorage
-// / cookies / URLs).
+// The OAuth client secret never ships to the browser. The short-lived code is
+// exchanged by the serverless function at /api/exchange, while the resulting
+// access token is kept in IndexedDB by the auth database helpers.
 
-import axios from 'axios'
+import axios, { type AxiosResponse } from 'axios'
 import { getAuth, setAuth, clearAuth } from '../db/gitHub'
 import * as gh from './githubService'
 import type { GitHubAuth } from '../types'
 
-// OAuth App config (frontend-safe values only — never the client secret)
+const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
+// OAuth App config (frontend-safe values only — never the client secret).
 export const GITHUB_OAUTH = {
-  clientId: 'YOUR_GITHUB_OAUTH_CLIENT_ID', // set at build/deploy time
-  redirectUri: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
+  clientId: import.meta.env?.VITE_GITHUB_CLIENT_ID || '',
+  redirectUri: `${origin}/auth/callback`,
   scopes: ['repo', 'user'],
-  // URL of your backend proxy that exchanges the code for a token
-  tokenProxyUrl: 'https://your-backend.example.com/exchange',
+  tokenProxyUrl: `${origin}/api/exchange`,
+}
+
+/** Pull a useful message out of Error, Axios, or server JSON payloads. */
+function extractErrorMessage(value: unknown, depth = 0): string | undefined {
+  if (typeof value === 'string') return value || undefined
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (!value || typeof value !== 'object' || depth >= 3) return undefined
+
+  if (value instanceof Error) return value.message || undefined
+  const record = value as Record<string, unknown>
+  for (const key of ['error', 'message', 'error_description', 'detail', 'reason']) {
+    const message = extractErrorMessage(record[key], depth + 1)
+    if (message) return message
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = extractErrorMessage(item, depth + 1)
+      if (message) return message
+    }
+  }
+  if (typeof record.code === 'string') return record.code
+  return undefined
+}
+
+/** Always return a string suitable for displaying in a toast. */
+export function oauthErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    return extractErrorMessage(error.response?.data) || error.message || 'GitHub authentication failed. Please try again.'
+  }
+  return extractErrorMessage(error) || 'GitHub authentication failed. Please try again.'
 }
 
 export async function loadStoredAuth(): Promise<GitHubAuth | null> {
@@ -34,6 +63,9 @@ export async function signOut(): Promise<void> {
 
 /** Start OAuth by redirecting to GitHub's authorization screen. */
 export function beginOAuth(): void {
+  if (!GITHUB_OAUTH.clientId) {
+    throw new Error('GitHub OAuth is not configured — VITE_GITHUB_CLIENT_ID is missing.')
+  }
   const state = Math.random().toString(36).slice(2)
   sessionStorage.setItem('cf_oauth_state', state)
   const params = new URLSearchParams({
@@ -61,13 +93,19 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
     throw new Error('OAuth state mismatch — please try again.')
   }
 
-  const res = await axios.post<{ access_token?: string; error?: string }>(
-    GITHUB_OAUTH.tokenProxyUrl,
-    { code, redirect_uri: GITHUB_OAUTH.redirectUri },
-  )
-  const token = res.data.access_token
+  let response: AxiosResponse<{ access_token?: string; error?: string }>
+  try {
+    response = await axios.post<{ access_token?: string; error?: string }>(
+      GITHUB_OAUTH.tokenProxyUrl,
+      { code, redirect_uri: GITHUB_OAUTH.redirectUri },
+    )
+  } catch (error) {
+    throw new Error(oauthErrorMessage(error))
+  }
+
+  const token = response.data.access_token
   if (!token) {
-    throw new Error(res.data.error || 'GitHub authentication failed. Please try again.')
+    throw new Error(response.data.error || 'GitHub authentication failed. Please try again.')
   }
 
   const user = await gh.getCurrentUser(token)
