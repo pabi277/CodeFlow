@@ -7,7 +7,8 @@ import { FaFolderOpen } from 'react-icons/fa'
 import { NameModal } from './Shared/NameModal'
 
 const SAMPLE = [
-  { path: 'main.py', content: '# Hello, CodeFlow!\ndef main():\n    name = input("Enter your name: ")\n    print(f"Hello, {name}!")\n\nif __name__ == "__main__":\n    main()\n' },
+  { path: 'main.py', content: '# Imports util.py from the same project (needs Termux to run multi-file)\nfrom util import greet\n\ndef main():\n    name = input("Enter your name: ")\n    print(greet(name))\n\nif __name__ == "__main__":\n    main()\n' },
+  { path: 'util.py', content: 'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n' },
   { path: 'hello.js', content: '// JavaScript runs locally without an API key\nconst name = "CodeFlow";\nconsole.log("Hello, " + name + "!");\nfor (let i = 1; i <= 3; i++) console.log("Count: " + i);\n' },
   { path: 'readme.md', content: '# My Project\n\nWelcome to **CodeFlow** — a mobile-first code editor PWA.\n\n- Tap a file in the explorer to open it\n- Tap ▶ to run the active file\n- Long-press a file for more options\n- Open this file and tap the eye icon for a live preview\n\n```python\nprint("You can preview fenced code too")\n```\n\n| Shortcut | Action |\n| --- | --- |\n| Ctrl/Cmd+P | Command palette |\n| Ctrl/Cmd+G | Go to line |\n' },
   { path: 'preview.html', content: '<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8"/>\n  <title>CodeFlow Preview</title>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <div class="card">\n    <h1>Hello from CodeFlow</h1>\n    <p>Linked <code>css/style.css</code> and <code>js/app.js</code> load in preview.</p>\n    <button id="go">Tap me</button>\n  </div>\n  <script src="js/app.js"></script>\n</body>\n</html>\n' },

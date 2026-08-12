@@ -238,8 +238,9 @@ export function Settings() {
               )}
             </div>
             <p className="mt-1.5 text-[11px] text-ink-muted">
-              Run code directly on your device for unlimited, free, offline execution.
-              When connected, the priority chain is: local JS → Termux → Judge0 → mock.
+              Termux is the backend: it runs Python with the whole project (imports work)
+              and serves HTML/CSS/JS as a live preview server. Copy the latest v2 bridge
+              script below if you still have the old one.
             </p>
             <div className="mt-2 flex gap-2">
               <button onClick={copyBridgeScript} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/15 px-3 py-2 text-[12px] font-medium text-accent active:opacity-80">

@@ -55,7 +55,13 @@ function termuxLangKey(lang: string): string | null {
   return map[lang] || null
 }
 
-export async function executeInTermux(code: string, language: string, stdin = ''): Promise<ExecuteResult> {
+export async function executeInTermux(
+  code: string,
+  language: string,
+  stdin = '',
+  files?: Record<string, string>,
+  entry?: string,
+): Promise<ExecuteResult> {
   const key = termuxLangKey(language)
   if (!key) throw new Error(`Termux does not support ${languageName(language)}.`)
   const t0 = Date.now()
@@ -64,8 +70,8 @@ export async function executeInTermux(code: string, language: string, stdin = ''
     res = await fetch(`${BRIDGE_URL}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ language: key, code, stdin }),
-      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ language: key, code, stdin, files, entry }),
+      signal: AbortSignal.timeout(20000),
     })
   } catch {
     clearBridgeCache()
@@ -107,11 +113,14 @@ export async function executeCode(
   path: string,
   stdin: string,
   opts: RunOptions,
+  files?: Record<string, string>,
 ): Promise<ExecuteResult> {
   const lang = detectLanguage(path)
+  const projectFiles = files && Object.keys(files).length ? files : undefined
+  const hasSiblings = !!(projectFiles && Object.keys(projectFiles).length > 1)
 
-  // 1. JS/TS always run locally in the browser
-  if (canRunLocally(lang)) {
+  // 1. JS/TS run in the browser unless Termux can resolve sibling modules
+  if (canRunLocally(lang) && !(hasSiblings && await checkTermuxBridge())) {
     const r = runLocalJavaScript(code, stdin)
     return {
       success: r.status === 'accepted',
@@ -120,10 +129,10 @@ export async function executeCode(
     }
   }
 
-  // 2. Termux if available
+  // 2. Termux if available — send the whole project so imports work
   if (await checkTermuxBridge()) {
     try {
-      const r = await executeInTermux(code, lang, stdin)
+      const r = await executeInTermux(code, lang, stdin, projectFiles, path)
       // If the language is missing in Termux, surface the helpful install
       // message ("Ran in Termux — attempted locally") instead of silently
       // falling back. Only connectivity errors (thrown above) fall through.
@@ -140,8 +149,16 @@ export async function executeCode(
         executionTime: r.executionTime, memoryKb: 0, source: 'termux', error: r.error,
       }
     } catch (err) {
-      // bridge became unavailable — fall through to Judge0 / mock
+      // bridge became unavailable — JS can still run in the browser
       void err
+      if (canRunLocally(lang)) {
+        const r = runLocalJavaScript(code, stdin)
+        return {
+          success: r.status === 'accepted',
+          stdout: r.stdout, stderr: r.stderr, compileOutput: r.compileOutput,
+          status: r.status, executionTime: r.timeMs, memoryKb: r.memoryKb, source: 'local',
+        }
+      }
     }
   }
 

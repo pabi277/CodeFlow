@@ -9,6 +9,8 @@ import { KeyboardToolbar } from './components/KeyboardToolbar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { StatusBar } from './components/StatusBar'
 import { GoToLine } from './components/GoToLine'
+import { Preview } from './components/Editor/Preview'
+import { isHtmlPreview } from './utils/markdown'
 import { useIDEShortcuts } from './hooks/useIDEShortcuts'
 import { Drawer } from './components/Drawer'
 import { CommandPalette } from './components/CommandPalette'
@@ -72,6 +74,11 @@ export default function App() {
   const themePreset = useStore((s) => s.settings.themePreset)
   const landscapeSplit = useStore((s) => s.landscapeSplit)
   const importProjectOpen = useStore((s) => s.importProjectOpen)
+  const viewerOpen = useStore((s) => s.viewerOpen)
+  const viewerFile = useStore((s) => {
+    const id = s.activeTabId
+    return id ? s.nodeMap[id] : undefined
+  })
 
   useEffect(() => {
     initBuiltinPlugins()
@@ -135,6 +142,14 @@ export default function App() {
       <PullRequests />
       <PluginHost />
       <GoToLine />
+      {viewerOpen && viewerFile && isHtmlPreview(viewerFile.path) && (
+        <Preview
+          content={viewerFile.content}
+          path={viewerFile.path}
+          variant="overlay"
+          onClose={() => useStore.getState().setViewerOpen(false)}
+        />
+      )}
       <Toasts />
       <OfflineBanner />
       <InstallBanner />

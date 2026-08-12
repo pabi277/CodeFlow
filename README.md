@@ -62,7 +62,8 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | Area | Status |
 | --- | --- |
 | **Code minimap** — canvas overview of the file, click/drag to scroll (Settings toggle) | ✅ |
-| **Markdown / HTML preview** — live preview, split, or preview-only for `.md` / `.html` / `.svg`; local CSS/JS/`@import`/images are resolved from the project | ✅ |
+| **Markdown / HTML preview** — dedicated viewer with refresh + optional new tab; Termux v2 serves the project as a live server so CSS/JS/images load for real | ✅ |
+| **Multi-file run** — Termux receives the whole project, so Python/Node imports resolve | ✅ |
 | **Breadcrumbs** — tap a folder to reveal it in the explorer | ✅ |
 | **Problems panel** — JSON, brackets, markdown fences, HTML/YAML checks with jump-to-line | ✅ |
 | **Outline** — functions/classes/variables for the active file | ✅ |

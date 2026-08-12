@@ -57,6 +57,8 @@ export function CommandPalette() {
   const formatActiveDocument = useStore((s) => s.formatActiveDocument)
   const setGoToLineOpen = useStore((s) => s.setGoToLineOpen)
   const openBottomPanel = useStore((s) => s.openBottomPanel)
+  const setViewerOpen = useStore((s) => s.setViewerOpen)
+  const openPreviewInNewTab = useStore((s) => s.openPreviewInNewTab)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -89,6 +91,8 @@ export function CommandPalette() {
     { label: 'Toggle Breadcrumbs', run: () => updateSettings({ showBreadcrumbs: !settings.showBreadcrumbs }) },
     { label: 'Toggle Status Bar', run: () => updateSettings({ showStatusBar: !settings.showStatusBar }) },
     { label: 'Toggle Preview', run: () => { cyclePreviewMode(); setOpen(false) } },
+    { label: 'Open HTML Viewer', run: () => { setViewerOpen(true); setOpen(false) } },
+    { label: 'Open Preview in New Tab', run: () => { void openPreviewInNewTab(); setOpen(false) } },
     { label: 'Preview: Editor Only', run: () => { setPreviewMode('editor'); setOpen(false) } },
     { label: 'Preview: Split', run: () => { setPreviewMode('split'); setOpen(false) } },
     { label: 'Preview: Preview Only', run: () => { setPreviewMode('preview'); setOpen(false) } },

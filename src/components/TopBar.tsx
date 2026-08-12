@@ -5,9 +5,9 @@ import { IconButton } from './Shared/IconButton'
 import { BottomSheet } from './Shared/BottomSheet'
 import { HiMenu, HiDotsVertical } from 'react-icons/hi'
 import { FaPlay } from 'react-icons/fa'
-import { AiOutlineSetting, AiOutlineSearch, AiOutlinePlus, AiOutlineFolder, AiOutlineFileText, AiOutlineDownload, AiOutlineEye } from 'react-icons/ai'
+import { AiOutlineSetting, AiOutlineSearch, AiOutlinePlus, AiOutlineFolder, AiOutlineFileText, AiOutlineDownload, AiOutlineEye, AiOutlineExport } from 'react-icons/ai'
 import { VscClearAll, VscTerminal, VscHistory, VscCode, VscGitCommit, VscError } from 'react-icons/vsc'
-import { isPreviewable } from '../utils/markdown'
+import { isHtmlPreview, isPreviewable } from '../utils/markdown'
 
 export function TopBar() {
   const toggleDrawer = useStore((s) => s.toggleDrawer)
@@ -32,12 +32,15 @@ export function TopBar() {
   const formatActiveDocument = useStore((s) => s.formatActiveDocument)
   const setGoToLineOpen = useStore((s) => s.setGoToLineOpen)
   const openBottomPanel = useStore((s) => s.openBottomPanel)
+  const setViewerOpen = useStore((s) => s.setViewerOpen)
+  const openPreviewInNewTab = useStore((s) => s.openPreviewInNewTab)
   const [menuOpen, setMenuOpen] = useState(false)
 
   const dirtyTabs = useStore((s) => s.dirtyTabs)
   const activeFile = activeTabId ? nodeMap[activeTabId] : undefined
   const dirty = activeTabId ? dirtyTabs[activeTabId] : false
   const canPreview = !!(activeFile && isPreviewable(activeFile.path))
+  const canHtml = !!(activeFile && isHtmlPreview(activeFile.path))
 
   return (
     <>
@@ -93,6 +96,8 @@ export function TopBar() {
           <MenuItem icon={<VscCode />} label="Snippets" onPress={() => setSnippetsOpen(true)} />
           <MenuItem icon={<VscGitCommit />} label="Git History" onPress={() => openGitLog()} />
           <MenuItem icon={<AiOutlineEye />} label="Toggle Preview" onPress={() => cyclePreviewMode()} />
+          {canHtml && <MenuItem icon={<AiOutlineEye />} label="Open HTML Viewer" onPress={() => setViewerOpen(true)} />}
+          {canHtml && <MenuItem icon={<AiOutlineExport />} label="Open Preview in New Tab" onPress={() => { void openPreviewInNewTab() }} />}
           <MenuItem icon={<VscCode />} label="Format Document" onPress={() => formatActiveDocument()} />
           <MenuItem icon={<AiOutlineSearch />} label="Go to Line" onPress={() => setGoToLineOpen(true)} />
           <MenuItem icon={<VscError />} label="Show Problems" onPress={() => openBottomPanel('problems')} />

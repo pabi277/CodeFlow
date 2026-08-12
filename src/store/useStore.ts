@@ -26,6 +26,9 @@ import { uuid } from '../utils/id'
 import { detectLanguage, languageName } from '../utils/language'
 import * as gitService from '../services/gitService'
 import { executeCode, checkTermuxBridge, clearBridgeCache, type ExecutionSource } from '../services/executionService'
+import { collectProjectFiles, previewUrlFor, syncTermuxWorkspace, termuxSupportsPreview } from '../services/termuxPreview'
+import { buildHtmlPreview } from '../utils/htmlPreview'
+import { isHtmlPreview } from '../utils/markdown'
 import * as authService from '../services/authService'
 import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
@@ -112,6 +115,7 @@ interface StoreState {
   cursorPos: { line: number; col: number }
   goToLineOpen: boolean
   pendingGoTo: { fileId: string; line: number; col: number } | null
+  viewerOpen: boolean
 
   // actions
   bootstrap: () => Promise<void>
@@ -167,6 +171,8 @@ interface StoreState {
   revealInExplorer: (nodeId: string) => void
   formatActiveDocument: () => void
   clearHistory: () => Promise<void>
+  setViewerOpen: (v: boolean) => void
+  openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
   importProjectFromZip: (file: File) => Promise<void>
@@ -288,6 +294,7 @@ export const useStore = create<StoreState>((set, get) => ({
   cursorPos: { line: 1, col: 1 },
   goToLineOpen: false,
   pendingGoTo: null,
+  viewerOpen: false,
 
   bootstrap: async () => {
     const [projects, settings, editorState, auth] = await Promise.all([
@@ -315,6 +322,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     await get().loadHistory()
     await get().refreshGitStatus()
+    void get().refreshTermuxStatus()
   },
 
   showToast: (message, type = 'info') => {
@@ -529,12 +537,14 @@ export const useStore = create<StoreState>((set, get) => ({
     const start = Date.now()
     try {
       const settings = get().settings
+      const files = collectProjectFiles(get().nodeMap)
+      files[node.path] = node.content
       const result = await executeCode(node.content, node.path, get().stdin, {
         apiKey: settings.judge0ApiKey,
         baseUrl: settings.judge0BaseUrl,
         timeLimit: settings.timeLimit,
         memoryLimit: settings.memoryLimit,
-      })
+      }, files)
       const source = result.source
       set({ lastRunSource: source })
 
@@ -783,6 +793,27 @@ export const useStore = create<StoreState>((set, get) => ({
   setImportProjectOpen: (v) => set({ importProjectOpen: v }),
 
   // ---- Phase 5 actions ----
+  setViewerOpen: (v) => set({ viewerOpen: v }),
+  openPreviewInNewTab: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node || !isHtmlPreview(node.path)) {
+      get().showToast('Open an HTML file first', 'info')
+      return
+    }
+    const files = collectProjectFiles(get().nodeMap)
+    files[node.path] = node.content
+    if (await termuxSupportsPreview()) {
+      const ok = await syncTermuxWorkspace(files)
+      if (ok) {
+        window.open(previewUrlFor(node.path), '_blank', 'noopener')
+        return
+      }
+    }
+    const bundled = buildHtmlPreview(node.content, node.path, files)
+    const blob = new Blob([bundled.html], { type: 'text/html' })
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+  },
   setPreviewMode: (m) => set({ previewMode: m }),
   cyclePreviewMode: () => {
     const order: PreviewMode[] = ['editor', 'split', 'preview']
