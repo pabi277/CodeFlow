@@ -62,7 +62,7 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | Area | Status |
 | --- | --- |
 | **Code minimap** — canvas overview of the file, click/drag to scroll (Settings toggle) | ✅ |
-| **Markdown / HTML preview** — live preview, split, or preview-only for `.md` / `.html` / `.svg` | ✅ |
+| **Markdown / HTML preview** — live preview, split, or preview-only for `.md` / `.html` / `.svg`; local CSS/JS/`@import`/images are resolved from the project | ✅ |
 | **Breadcrumbs** — tap a folder to reveal it in the explorer | ✅ |
 | **Problems panel** — JSON, brackets, markdown fences, HTML/YAML checks with jump-to-line | ✅ |
 | **Outline** — functions/classes/variables for the active file | ✅ |
@@ -179,7 +179,11 @@ npm run test:execution   # execution priority chain (local/mock fallback)
 npm run test:zip         # project ZIP export/import round-trip
 npm run test:bridge      # Termux bridge real execution (python/C, stdin, health)
 npm run test:smoke       # mount all screens + App boot transition (React #310 guard)
-npm run test             # run all seven suites
+npm run test:diagnostics # problems engine (JSON, brackets, markdown, YAML)
+npm run test:markdown    # preview renderer + XSS URL guards
+npm run test:format      # JSON pretty-print + whitespace cleanup
+npm run test:html-preview # HTML preview inlines local CSS/JS/@import
+npm run test             # run all suites
 ```
 
 
