@@ -182,6 +182,22 @@ Worker alternative lives in [`/worker`](./worker).
    `/auth/callback` to the SPA, so no extra routing config is needed.
 4. Rebuild. Users can now tap **Connect GitHub** in the Git tab.
 
+### Testing OAuth locally (no merge / no deploy needed)
+
+GitHub allows **loopback redirect URIs** without registering them, so you can
+run the full real flow against your existing OAuth App:
+
+1. Copy `.env.example` → `.env.local` and fill in:
+   `VITE_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+   (get the secret from Vercel Dashboard → Settings → Environment Variables).
+   `.env.local` is gitignored — never commit the secret.
+2. `npm run dev` — the dev server serves `POST /api/exchange` locally via
+   `vite.config.ts` (same handler as the Vercel function).
+3. Open `http://localhost:5173` → Git tab → **Connect GitHub** → authorize.
+   GitHub redirects to `http://localhost:5173/auth/callback?code=...`
+   (loopback URLs are always accepted). Success shows a "Connected to GitHub"
+   toast; failures show an error toast with the server's message.
+
 ## 🖥️ Termux Integration
 
 Run code **locally on your Android device** for free, unlimited, offline execution.

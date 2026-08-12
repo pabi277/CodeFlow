@@ -56,6 +56,7 @@ async function main() {
   check('username from callback is kept (Bug 2 regression)', auth?.username === 'octocat', `got ${auth?.username}`)
   check('token from callback is kept', auth?.token === 'gho_fake_token_123')
   check('no error toast on success', useStore.getState().toasts.filter((t) => t.type === 'error').length === 0)
+  check('success toast shown on connect', useStore.getState().toasts.some((t) => t.type === 'success' && t.message.includes('Connected')), JSON.stringify(useStore.getState().toasts))
 
   console.log('\n[2] bootstrap with failing exchange -> toast (Bug 3)')
   dom.window.history.replaceState({}, '', '/auth/callback?code=testcode123&state=teststate')

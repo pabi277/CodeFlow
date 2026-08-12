@@ -397,7 +397,10 @@ export const useStore = create<StoreState>((set, get) => ({
     ) {
       try {
         const cbAuth = await authService.handleOAuthCallback()
-        if (cbAuth) auth = cbAuth
+        if (cbAuth) {
+          auth = cbAuth
+          get().showToast('Connected to GitHub', 'success')
+        }
       } catch (err) {
         get().showToast(authService.oauthErrorMessage(err), 'error')
       }
@@ -773,7 +776,10 @@ export const useStore = create<StoreState>((set, get) => ({
   handleCallback: async () => {
     try {
       const auth = await authService.handleOAuthCallback()
-      if (auth) set({ auth })
+      if (auth) {
+        set({ auth })
+        get().showToast('Connected to GitHub', 'success')
+      }
     } catch (err) {
       get().showToast(authService.oauthErrorMessage(err), 'error')
     }
