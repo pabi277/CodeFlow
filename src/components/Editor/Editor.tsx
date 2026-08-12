@@ -17,7 +17,7 @@ import { rainbowBrackets } from '../../editor/rainbowBrackets'
 import { linkedEditing } from '../../editor/linkedEditing'
 import { formatOnPaste } from '../../editor/pasteIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
 import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
@@ -163,18 +163,21 @@ export function Editor() {
             {
               key: 'Tab',
               run: (v) => {
+                if (acceptCompletion(v)) return true
                 const path = activeTabRef.current ? useStore.getState().nodeMap[activeTabRef.current]?.path : ''
                 const lang = path ? detectLanguage(path) : 'plain'
                 if (['html', 'css', 'scss', 'less', 'xml', 'vue'].includes(lang) && expandEmmetInEditor(v, lang)) return true
                 return indentWithTab.run?.(v) ?? false
               },
             },
+            // Enter must insert a newline — never accept if/for snippets (that
+            // used to expand a block and felt like a new tab after every Enter).
             { key: 'F12', run: () => { void useStore.getState().goToDefinition(); return true } },
             { key: 'Shift-F12', run: () => { void useStore.getState().findReferences(); return true } },
             { key: 'F2', run: () => { useStore.getState().openRename(); return true } },
             ...closeBracketsKeymap,
             ...defaultKeymap,
-            ...completionKeymap,
+            ...completionKeymap.filter((b) => b.key !== 'Enter'),
             ...searchKeymap,
             ...historyKeymap,
             ...foldKeymap,
@@ -184,10 +187,11 @@ export function Editor() {
           completionComp.current.of(
             autocompletion({
               override: [getCompletionSourceForLanguage('plain')],
-              defaultKeymap: true,
+              defaultKeymap: false,
               activateOnTyping: true,
-              maxRenderedOptions: 50,
+              maxRenderedOptions: 8,
               closeOnBlur: true,
+              aboveCursor: true,
             }),
           ),
           langComp.current.of([]),
@@ -280,10 +284,11 @@ export function Editor() {
         effects: completionComp.current.reconfigure(
           autocompletion({
             override: [getCompletionSourceForLanguage(lang)],
-            defaultKeymap: true,
+            defaultKeymap: false,
             activateOnTyping: true,
-            maxRenderedOptions: 50,
+            maxRenderedOptions: 8,
             closeOnBlur: true,
+            aboveCursor: true,
           }),
         ),
       })
