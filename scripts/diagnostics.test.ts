@@ -55,6 +55,14 @@ function main() {
   ok(collectDrafts('const s = "{ not a brace"', '/a.js').every((d) => d.source !== 'brackets' || !d.message.includes('Unclosed')), 'ignores braces inside strings')
   ok(collectDrafts('// {\nconst x = 1', '/a.js').length === 0, 'ignores braces in line comments')
   ok(collectDrafts('def f(\n    x\n', '/a.py').some((d) => d.source === 'brackets'), 'python unclosed paren')
+  ok(collectDrafts('const r = /foo(bar)/; const c = /[a-z]+/;', '/a.js').length === 0, 'ignores parens and classes inside JS regex')
+  ok(collectDrafts('const s = `a ${b} (${c})`;', '/a.js').length === 0, 'ignores braces inside template literals')
+  ok(collectDrafts('def greet(name: str) -> str:\n    return f"Hello, {name}!"\n', '/util.py').length === 0, 'python f-string and type hints are clean')
+
+  console.log('\n[no false positives on markup]')
+  ok(collectDrafts('<p>It\'s fine (really)</p>\n<script src="app.js"></script>\n', '/i.html').every((d) => d.source !== 'brackets'), 'HTML is not bracket-scanned')
+  ok(collectDrafts('See [docs](https://x.com) and a list [1, 2].', '/n.md').every((d) => d.source !== 'brackets'), 'Markdown links are not bracket errors')
+  ok(collectDrafts('body { color: red; }\n.card { box-shadow: rgba(0,0,0,.35); }\n', '/a.css').length === 0, 'balanced CSS is clean')
 
   console.log('\n[markdown]')
   const fence = collectDrafts('# hi\n```js\nconst x = 1\n', '/n.md')

@@ -1,6 +1,6 @@
 // Lightweight project diagnostics — no language server required.
-// Finds JSON parse errors, unbalanced brackets, unclosed markdown fences,
-// and a few HTML/YAML footguns. Designed to stay cheap on large files.
+// Finds JSON parse errors, unbalanced brackets (code only), unclosed markdown
+// fences, and a few HTML/YAML footguns. Designed to stay cheap on large files.
 
 import type { Diagnostic, DiagnosticSeverity, FileNode } from '../types'
 import { detectLanguage } from '../utils/language'
@@ -51,16 +51,21 @@ function rank(s: DiagnosticSeverity): number {
   return s === 'error' ? 0 : s === 'warning' ? 1 : 2
 }
 
+// Bracket matching is only reliable on real programming languages.
+// HTML / Markdown / YAML / prose use [], (), and apostrophes in ways
+// that look like syntax errors but aren't.
+const BRACKET_LANGS = new Set([
+  'javascript', 'typescript', 'python', 'c', 'cpp', 'java', 'go', 'rust',
+  'php', 'kotlin', 'swift', 'ruby', 'lua', 'css',
+])
+
 export function collectDrafts(content: string, path: string): Draft[] {
   if (content.length > MAX_FILE_CHARS) return []
   const lang = detectLanguage(path)
   const drafts: Draft[] = []
 
-  if (lang === 'json') {
-    drafts.push(...diagnoseJson(content))
-  } else {
-    drafts.push(...diagnoseBrackets(content, lang))
-  }
+  if (lang === 'json') drafts.push(...diagnoseJson(content))
+  else if (BRACKET_LANGS.has(lang)) drafts.push(...diagnoseBrackets(content, lang))
 
   if (lang === 'markdown') drafts.push(...diagnoseMarkdown(content))
   if (lang === 'html' || lang === 'xml') drafts.push(...diagnoseMarkup(content, lang))
@@ -105,15 +110,18 @@ export function offsetToLineCol(src: string, offset: number): { line: number; co
   return { line, col }
 }
 
+const REGEX_PREV = new Set('([{,;:!&|?~^*%=+\n'.split(''))
+
 function diagnoseBrackets(src: string, lang: string): Draft[] {
   const pairs: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
   const closing: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
   const stack: { ch: string; line: number; col: number }[] = []
   const drafts: Draft[] = []
 
-  const hashComments = lang === 'python' || lang === 'shell' || lang === 'yaml' || lang === 'ruby'
-  const jsComments = ['javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'css', 'php', 'kotlin', 'swift'].includes(lang)
-  const pyStrings = lang === 'python'
+  const hashComments = lang === 'python' || lang === 'shell' || lang === 'ruby'
+  const slashComments = ['javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'css', 'php', 'kotlin', 'swift'].includes(lang)
+  const jsLike = lang === 'javascript' || lang === 'typescript'
+  const pyLike = lang === 'python'
 
   let i = 0
   let line = 1
@@ -130,40 +138,119 @@ function diagnoseBrackets(src: string, lang: string): Draft[] {
     i++
   }
 
+  const skipLineComment = () => {
+    while (i < len && src[i] !== '\n') advance()
+  }
+
+  const skipBlockComment = () => {
+    advance()
+    advance()
+    while (i < len && !(src[i] === '*' && src[i + 1] === '/')) advance()
+    if (i < len) { advance(); advance() }
+  }
+
+  const skipQuoted = (quote: string, triple: boolean) => {
+    if (triple) { advance(); advance(); advance() }
+    else advance()
+    while (i < len) {
+      if (src[i] === '\\') {
+        advance()
+        if (i < len) advance()
+        continue
+      }
+      if (triple) {
+        if (src[i] === quote && src[i + 1] === quote && src[i + 2] === quote) {
+          advance(); advance(); advance()
+          return
+        }
+        advance()
+      } else if (src[i] === quote) {
+        advance()
+        return
+      } else {
+        advance()
+      }
+    }
+  }
+
+  const skipJsRegex = () => {
+    advance()
+    let inClass = false
+    while (i < len && src[i] !== '\n') {
+      const ch = src[i]
+      if (ch === '\\') {
+        advance()
+        if (i < len) advance()
+        continue
+      }
+      if (ch === '[' && !inClass) { inClass = true; advance(); continue }
+      if (ch === ']' && inClass) { inClass = false; advance(); continue }
+      if (ch === '/' && !inClass) {
+        advance()
+        while (i < len && /[gimsuy]/.test(src[i])) advance()
+        return
+      }
+      advance()
+    }
+  }
+
+  const skipTemplate = () => {
+    advance()
+    while (i < len) {
+      if (src[i] === '\\') { advance(); if (i < len) advance(); continue }
+      if (src[i] === '`') { advance(); return }
+      if (src[i] === '$' && src[i + 1] === '{') {
+        advance()
+        advance()
+        let depth = 1
+        while (i < len && depth > 0) {
+          if (src[i] === '`') { skipTemplate(); continue }
+          if (src[i] === '"' || src[i] === "'") { skipQuoted(src[i], false); continue }
+          if (src[i] === '/' && src[i + 1] === '/') { skipLineComment(); continue }
+          if (src[i] === '/' && src[i + 1] === '*') { skipBlockComment(); continue }
+          if (src[i] === '{') depth++
+          else if (src[i] === '}') {
+            depth--
+            if (depth === 0) { advance(); break }
+          }
+          advance()
+        }
+        continue
+      }
+      advance()
+    }
+  }
+
+  const isRegexContext = (): boolean => {
+    let j = i - 1
+    while (j >= 0 && (src[j] === ' ' || src[j] === '\t')) j--
+    if (j < 0) return true
+    return REGEX_PREV.has(src[j])
+  }
+
   while (i < len) {
     const ch = src[i]
-    const next2 = src.slice(i, i + 2)
-    const next3 = src.slice(i, i + 3)
+    const next2 = src[i] + (src[i + 1] || '')
+    const next3 = next2 + (src[i + 2] || '')
 
-    if (jsComments && next2 === '//') {
-      while (i < len && src[i] !== '\n') advance()
+    if (slashComments && next2 === '//') { skipLineComment(); continue }
+    if (slashComments && next2 === '/*') { skipBlockComment(); continue }
+    if (hashComments && ch === '#') { skipLineComment(); continue }
+
+    if (pyLike && (next3 === '"""' || next3 === "'''")) {
+      skipQuoted(next3[0], true)
       continue
     }
-    if ((jsComments || lang === 'html' || lang === 'xml') && next2 === '/*') {
-      advance(); advance()
-      while (i < len && src.slice(i, i + 2) !== '*/') advance()
-      if (i < len) { advance(); advance() }
+
+    if (jsLike && ch === '`') { skipTemplate(); continue }
+
+    if (jsLike && ch === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && isRegexContext()) {
+      skipJsRegex()
       continue
     }
-    if (hashComments && ch === '#') {
-      while (i < len && src[i] !== '\n') advance()
-      continue
-    }
-    if (pyStrings && (next3 === '"""' || next3 === "'''")) {
-      const q = next3
-      advance(); advance(); advance()
-      while (i < len && src.slice(i, i + 3) !== q) advance()
-      if (i < len) { advance(); advance(); advance() }
-      continue
-    }
-    if (ch === '"' || ch === "'" || (ch === '`' && (lang === 'javascript' || lang === 'typescript'))) {
-      const q = ch
-      advance()
-      while (i < len && src[i] !== q) {
-        if (src[i] === '\\') advance()
-        if (i < len) advance()
-      }
-      if (i < len) advance()
+
+    if (ch === '"' || ch === "'") {
+      skipQuoted(ch, false)
       continue
     }
 
