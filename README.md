@@ -181,6 +181,13 @@ to exchange the temporary code for a token.
 A Cloudflare Worker alternative remains available in [`/worker`](./worker) for
 self-hosted deployments; do not configure both proxies at the same time.
 
+### Testing OAuth locally
+
+Copy `.env.example` to `.env.local`, fill in the three OAuth variables, and run
+`npm run dev`. The Vite dev server uses the same `/api/exchange.js` handler for
+local testing. Open the Git tab and choose **Connect GitHub**; callback errors
+are shown in a toast instead of being swallowed. Never commit `.env.local`.
+
 ## 🖥️ Termux Integration
 
 Run code **locally on your Android device** for free, unlimited, offline execution.
