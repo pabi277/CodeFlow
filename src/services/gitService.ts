@@ -37,6 +37,16 @@ async function requireToken(): Promise<string> {
   return auth.token
 }
 
+/** List a repo's branches, treating a brand-new (empty) repo as having none. */
+async function listBranchesOrEmpty(token: string, owner: string, repo: string): Promise<GitHubBranch[]> {
+  try {
+    return await gh.listBranches(token, owner, repo)
+  } catch (err) {
+    if (isEmptyRepoError(err)) return []
+    throw err
+  }
+}
+
 const dirnameRepo = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const basenameRepo = (p: string) => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p)
 /** "/src/main.py" -> "src/main.py" */
@@ -133,10 +143,65 @@ export interface CommitOptions {
   push: boolean
 }
 
+/** A file to add in the very first commit of a brand-new (empty) repository. */
+interface InitialFile {
+  id: string
+  path: string
+  content: string
+}
+
+/**
+ * Push the very first commit into an EMPTY repository (one with no commits yet).
+ *
+ * GitHub's git database API (blobs / trees / commits / refs) answers every call
+ * with 409 "Git Repository is empty" until the repository has its first commit,
+ * so the repository is initialized by creating the first file through the
+ * contents API; any remaining files are then committed on top with the normal
+ * git database flow. Returns the final commit SHA and every file's blob SHA.
+ */
+async function pushInitialCommitToEmptyRepo(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  message: string,
+  files: InitialFile[],
+): Promise<{ sha: string; blobShas: Record<string, string> }> {
+  if (!files.length) {
+    throw new Error('This repository is empty — add a file before committing.')
+  }
+
+  const blobShas: Record<string, string> = {}
+  const [first, ...rest] = files
+
+  // 1. initialize the repository and create the first file (this makes the
+  //    default branch exist, so the git database API works afterwards).
+  const init = await gh.createOrUpdateFile(token, owner, repo, toRepoPath(first.path), first.content, message, branch)
+  blobShas[first.id] = init.blobSha
+  let sha = init.commitSha
+
+  // 2. commit the remaining files on top of the brand-new branch.
+  if (rest.length) {
+    const ref = await gh.getRef(token, owner, repo, branch)
+    const baseCommit = await gh.getCommit(token, owner, repo, ref.object.sha)
+    const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
+    for (const f of rest) {
+      const blobSha = await gh.createBlob(token, owner, repo, f.content)
+      blobShas[f.id] = blobSha
+      entries.push({ path: toRepoPath(f.path), mode: '100644', type: 'blob', sha: blobSha })
+    }
+    const treeSha = await gh.createTree(token, owner, repo, baseCommit.tree.sha, entries)
+    const commit = await gh.createCommit(token, owner, repo, message, treeSha, [ref.object.sha])
+    await gh.updateRef(token, owner, repo, branch, commit.sha)
+    sha = commit.sha
+  }
+
+  return { sha, blobShas }
+}
+
 /** Commit staged files and push them to the connected GitHub branch. Returns the new commit SHA.
  *  Works on both existing branches and freshly-cloned EMPTY repositories — in the empty case
- *  this creates the initial commit (tree without a base, commit without parents, then creates
- *  the branch ref). */
+ *  the repository is initialized through the contents API and the files are committed on top. */
 export async function commitChanges(projectId: string, opts: CommitOptions): Promise<string> {
   // CodeFlow has no local Git object database or pending-commit queue. Creating a
   // commit without moving the remote ref would leave it unreachable and then
@@ -152,59 +217,60 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
   }
   const { owner, repo, branch } = project.github
 
-  // 0. detect whether the remote branch exists yet (empty repo → initial commit)
-  let baseSha: string | null = null
-  let baseTree: string | null = null
-  try {
-    const ref = await gh.getRef(token, owner, repo, branch)
-    baseSha = ref.object.sha
-    const baseCommit = await gh.getCommit(token, owner, repo, baseSha)
-    baseTree = baseCommit.tree.sha
-  } catch (err) {
-    if (!isEmptyRepoError(err)) throw err
-    // Brand-new repository with no commits — this push creates the first commit,
-    // so there is no base ref/tree and the branch ref must be created, not updated.
-  }
-
-  // 1. create blobs for each included file, collect entries
-  const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
-  const blobShas: Record<string, string> = {}
+  // 0. split the staged files into additions and deletions
+  const additions: InitialFile[] = []
+  const deletions: { id: string; path: string }[] = []
   for (const id of opts.includeIds) {
     const node = await fsDb.getNode(id)
     if (!node) continue
-    if (node.isDeleted) {
-      // deletions only make sense when there is a commit to delete from
-      if (baseSha) entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: null })
-    } else {
-      const blobSha = await gh.createBlob(token, owner, repo, node.content)
-      blobShas[id] = blobSha
-      entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: blobSha })
-    }
+    if (node.isDeleted) deletions.push({ id: node.id, path: node.path })
+    else additions.push({ id: node.id, path: node.path, content: node.content })
   }
 
-  // 2-6. ref -> commit -> tree -> new tree -> commit -> update/create ref
-  const treeSha = await gh.createTree(token, owner, repo, baseTree, entries)
-  const newCommit = await gh.createCommit(token, owner, repo, opts.message, treeSha, baseSha ? [baseSha] : [])
-  if (opts.push) {
-    if (baseSha) {
-      await gh.updateRef(token, owner, repo, branch, newCommit.sha)
-    } else {
-      await gh.createRef(token, owner, repo, branch, newCommit.sha)
+  // 1. detect whether the remote branch exists yet (empty repo → initial commit)
+  let baseSha: string | null = null
+  try {
+    baseSha = (await gh.getRef(token, owner, repo, branch)).object.sha
+  } catch (err) {
+    if (!isEmptyRepoError(err)) throw err
+    baseSha = null // brand-new repository with no commits yet
+  }
+
+  let newSha: string
+  const blobShas: Record<string, string> = {}
+
+  if (baseSha === null) {
+    // Empty repository — the git database API would 409, so initialize it first.
+    const result = await pushInitialCommitToEmptyRepo(token, owner, repo, branch, opts.message, additions)
+    newSha = result.sha
+    Object.assign(blobShas, result.blobShas)
+  } else {
+    // Existing branch — standard blob → tree → commit → update ref flow.
+    const baseCommit = await gh.getCommit(token, owner, repo, baseSha)
+    const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
+    for (const d of deletions) {
+      entries.push({ path: toRepoPath(d.path), mode: '100644', type: 'blob', sha: null })
     }
+    for (const a of additions) {
+      const blobSha = await gh.createBlob(token, owner, repo, a.content)
+      blobShas[a.id] = blobSha
+      entries.push({ path: toRepoPath(a.path), mode: '100644', type: 'blob', sha: blobSha })
+    }
+    const treeSha = await gh.createTree(token, owner, repo, baseCommit.tree.sha, entries)
+    const commit = await gh.createCommit(token, owner, repo, opts.message, treeSha, [baseSha])
+    await gh.updateRef(token, owner, repo, branch, commit.sha)
+    newSha = commit.sha
   }
 
   // update local bookkeeping
-  for (const id of opts.includeIds) {
-    const node = await fsDb.getNode(id)
-    if (!node) continue
-    if (node.isDeleted) {
-      await fsDb.hardDelete(id)
-    } else {
-      await fsDb.syncGitFile(id, node.content, blobShas[id] || node.gitSha || '')
-    }
+  for (const a of additions) {
+    await fsDb.syncGitFile(a.id, a.content, blobShas[a.id] || '')
+  }
+  for (const d of deletions) {
+    await fsDb.hardDelete(d.id)
   }
   await projectsDb.updateProjectGithub(projectId, { lastSyncAt: Date.now() })
-  return newCommit.sha
+  return newSha
 }
 
 export interface UploadResult {
@@ -230,7 +296,11 @@ export async function uploadProjectToGitHub(
     throw new Error('This project is already connected to GitHub — use Commit & Push instead.')
   }
 
-  // 1. decide the target repo
+  // 1. collect local files (before touching the remote)
+  const files = (await fsDb.listAllInProject(projectId)).filter((n) => n.type === 'file' && !n.isDeleted)
+  onProgress?.({ label: `Uploading ${files.length} file(s)…`, done: 0, total: Math.max(files.length, 1) })
+
+  // 2. decide the target repo
   let owner: string
   let repo: string
   let branch: string
@@ -238,8 +308,8 @@ export async function uploadProjectToGitHub(
     const existing = await gh.getRepo(token, opts.owner, opts.repo)
     owner = existing.full_name.split('/')[0]
     repo = existing.name
-    branch = existing.default_branch
-    const branches = await gh.listBranches(token, owner, repo)
+    branch = existing.default_branch || 'main'
+    const branches = await listBranchesOrEmpty(token, owner, repo)
     if (branches.length > 0) {
       throw new Error(`"${owner}/${repo}" is not empty — clone it and commit from there instead.`)
     }
@@ -256,35 +326,25 @@ export async function uploadProjectToGitHub(
     branch = created.default_branch || 'main'
   }
 
-  // 2. collect local files
-  const files = (await fsDb.listAllInProject(projectId)).filter((n) => n.type === 'file' && !n.isDeleted)
-  onProgress?.({ label: `Uploading ${files.length} file(s)…`, done: 0, total: Math.max(files.length, 1) })
-
-  // 3. blobs in batches of 10
-  const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
+  // 3. create the initial commit. An empty repo can't be written with the git
+  //    database API (409 "Git Repository is empty"), so the repository is
+  //    initialized via the contents API and the files are committed on top.
+  const message = (opts.message || 'Initial commit').trim() || 'Initial commit'
   const blobShas: Record<string, string> = {}
-  let done = 0
-  for (let i = 0; i < files.length; i += 10) {
-    const batch = files.slice(i, i + 10)
-    await Promise.all(
-      batch.map(async (n) => {
-        const blobSha = await gh.createBlob(token, owner, repo, n.content)
-        blobShas[n.id] = blobSha
-        entries.push({ path: toRepoPath(n.path), mode: '100644', type: 'blob', sha: blobSha })
-      }),
+  if (files.length) {
+    onProgress?.({ label: 'Creating initial commit…', done: 0, total: files.length })
+    const result = await pushInitialCommitToEmptyRepo(
+      token,
+      owner,
+      repo,
+      branch,
+      message,
+      files.map((n) => ({ id: n.id, path: n.path, content: n.content })),
     )
-    done += batch.length
-    onProgress?.({ label: `Uploaded ${Math.min(done, files.length)} of ${files.length} files…`, done, total: files.length })
+    Object.assign(blobShas, result.blobShas)
   }
 
-  // 4. initial commit — no base tree, no parents, then create the branch ref
-  onProgress?.({ label: 'Creating initial commit…', done: files.length, total: files.length })
-  const treeSha = await gh.createTree(token, owner, repo, null, entries)
-  const message = (opts.message || 'Initial commit').trim() || 'Initial commit'
-  const commit = await gh.createCommit(token, owner, repo, message, treeSha, [])
-  await gh.createRef(token, owner, repo, branch, commit.sha)
-
-  // 5. local bookkeeping — every uploaded file is now tracked
+  // 4. local bookkeeping — every uploaded file is now tracked
   for (const n of files) {
     await fsDb.syncGitFile(n.id, n.content, blobShas[n.id] || '')
   }
