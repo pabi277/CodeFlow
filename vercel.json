@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/auth/callback", "destination": "/index.html" },
     { "source": "/((?!assets|icons|favicon|og|robots|sitemap|sw|workbox|termux).*)", "destination": "/index.html" }
   ]
 }

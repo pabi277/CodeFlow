@@ -2,11 +2,11 @@
 //
 // SECURITY: The code<->token exchange REQUIRES the client secret, which must
 // never ship in frontend code. This app therefore delegates that single step to
-// a small backend proxy (see /worker — a Cloudflare Worker). The frontend only
-// ever holds the access token, which is stored in IndexedDB (never localStorage
-// / cookies / URLs).
+// a small backend proxy — a Vercel Serverless Function at /api/exchange. The
+// frontend only ever holds the access token, which is stored in IndexedDB
+// (never localStorage / cookies / URLs).
 
-import axios from 'axios'
+import axios, { type AxiosResponse } from 'axios'
 import { getAuth, setAuth, clearAuth } from '../db/gitHub'
 import * as gh from './githubService'
 import type { GitHubAuth } from '../types'
@@ -17,10 +17,20 @@ import type { GitHubAuth } from '../types'
 const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
 export const GITHUB_OAUTH = {
-  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
+  clientId: import.meta.env?.VITE_GITHUB_CLIENT_ID || '',
   redirectUri: `${origin}/auth/callback`,
   scopes: ['repo', 'user'],
   tokenProxyUrl: `${origin}/api/exchange`,
+}
+
+/** Extract a user-friendly message from any error thrown during OAuth. */
+export function oauthErrorMessage(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    return (err.response?.data as { error?: string } | undefined)?.error ||
+      err.message ||
+      'GitHub authentication failed. Please try again.'
+  }
+  return err instanceof Error && err.message ? err.message : 'GitHub authentication failed. Please try again.'
 }
 
 export async function loadStoredAuth(): Promise<GitHubAuth | null> {
@@ -37,6 +47,9 @@ export async function signOut(): Promise<void> {
 
 /** Start OAuth by redirecting to GitHub's authorization screen. */
 export function beginOAuth(): void {
+  if (!GITHUB_OAUTH.clientId) {
+    throw new Error('GitHub OAuth is not configured — VITE_GITHUB_CLIENT_ID is missing.')
+  }
   const state = Math.random().toString(36).slice(2)
   sessionStorage.setItem('cf_oauth_state', state)
   const params = new URLSearchParams({
@@ -64,10 +77,18 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
     throw new Error('OAuth state mismatch — please try again.')
   }
 
-  const res = await axios.post<{ access_token?: string; error?: string }>(
-    GITHUB_OAUTH.tokenProxyUrl,
-    { code, redirect_uri: GITHUB_OAUTH.redirectUri },
-  )
+  let res: AxiosResponse<{ access_token?: string; error?: string }>
+  try {
+    res = await axios.post<{ access_token?: string; error?: string }>(
+      GITHUB_OAUTH.tokenProxyUrl,
+      { code, redirect_uri: GITHUB_OAUTH.redirectUri },
+    )
+  } catch (err) {
+    // Surface the proxy's JSON error (e.g. "bad_verification_code") instead of
+    // axios's generic "Request failed with status code 500".
+    throw new Error(oauthErrorMessage(err))
+  }
+
   const token = res.data.access_token
   if (!token) {
     throw new Error(res.data.error || 'GitHub authentication failed. Please try again.')
