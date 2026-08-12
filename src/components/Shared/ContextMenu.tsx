@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { BottomSheet } from './BottomSheet'
 import { NameModal } from './NameModal'
-import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
+import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiDownload, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
 import { AiOutlineFile } from 'react-icons/ai'
+import type { FileNode } from '../../types'
+import { isDataUrl, mimeForPath } from '../../utils/binary'
 
 export function ContextMenu() {
   const ctx = useStore((s) => s.contextMenu)
@@ -54,12 +56,45 @@ export function ContextMenu() {
   }
 
   const share = async () => {
-    if (node && navigator.share) {
-      try { await navigator.share({ title: node.name, text: node.content }) } catch {}
-    } else {
-      copyPath()
+    if (!node) return
+    try {
+      const blob = await blobForNode(node)
+      const file = new File([blob], node.name, { type: blob.type || mimeForPath(node.path) })
+      const canShareFile = typeof navigator.share === 'function'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [file] })
+
+      if (canShareFile) {
+        await navigator.share({ title: node.name, files: [file] })
+        return
+      }
+
+      // Older browsers cannot attach files to Web Share. Keep the fallback
+      // useful by sharing the source text, never just the file path.
+      if (navigator.share) {
+        await navigator.share({ title: node.name, text: node.content })
+        return
+      }
+
+      await navigator.clipboard?.writeText(node.content)
+      showToast('File sharing is unavailable — code copied as text', 'info')
+    } catch {
+      // A cancelled share is normal on mobile; do not show an error toast.
     }
-    close()
+  }
+
+  const download = async () => {
+    if (!node) return
+    try {
+      const blob = await blobForNode(node)
+      const { saveAs } = await import('file-saver')
+      // Use the node's actual name, including its extension (for example,
+      // Stack.c rather than a generic download filename).
+      saveAs(blob, node.name)
+      showToast(`Downloaded ${node.name}`, 'success')
+    } catch (err) {
+      showToast((err as Error).message || 'Could not download the file', 'error')
+    }
   }
 
   const Item = ({ icon, label, onPress, danger }: { icon: React.ReactNode; label: string; onPress: () => void; danger?: boolean }) => (
@@ -96,7 +131,8 @@ export function ContextMenu() {
             )}
             <Item icon={<FiEdit3 />} label="Rename" onPress={() => setRenamingId(node.id)} />
             <Item icon={<FiCopy />} label="Copy Path" onPress={copyPath} />
-            {node.type === 'file' && <Item icon={<FiShare2 />} label="Share" onPress={share} />}
+            {node.type === 'file' && <Item icon={<FiShare2 />} label="Share file" onPress={share} />}
+            {node.type === 'file' && <Item icon={<FiDownload />} label="Download file" onPress={download} />}
             <Item icon={<FiTrash2 />} label={node.type === 'file' ? 'Delete' : 'Delete Folder'} onPress={handleDelete} danger />
           </div>
         </BottomSheet>
@@ -124,6 +160,17 @@ export function ContextMenu() {
       )}
     </>
   )
+}
+
+async function blobForNode(node: FileNode): Promise<Blob> {
+  if (isDataUrl(node.content)) {
+    try {
+      return await (await fetch(node.content)).blob()
+    } catch {
+      // Fall through to a text blob if a data URL cannot be decoded.
+    }
+  }
+  return new Blob([node.content], { type: mimeForPath(node.path) })
 }
 
 function MoveSheet({ nodeId, onClose, onPick }: { nodeId: string; onClose: () => void; onPick: (id: string) => void }) {

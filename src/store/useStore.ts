@@ -43,11 +43,12 @@ import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorA
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
-import { programNeedsInput } from '../utils/programInput'
+import { inputPrompts, programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
+export type InputWizardState = { fileId: string; prompts: string[]; values: string[]; index: number } | null
 export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }
 
 const TAB_SYNC_ID = uuid()
@@ -102,6 +103,7 @@ interface StoreState {
   terminalOpen: boolean
   terminalHeight: number
   inputPanelOpen: boolean
+  inputWizard: InputWizardState
   stdin: string
   running: boolean
   runningFileId: string | null
@@ -279,9 +281,10 @@ interface StoreState {
   convertActiveLineEnding: (to: LineEnding) => void
 
   // execution
-  runCurrentFile: () => Promise<void>
+  runCurrentFile: (options?: { allowEmptyInput?: boolean }) => Promise<void>
   setStdin: (v: string) => void
   setInputPanelOpen: (v: boolean) => void
+  setInputWizard: (wizard: InputWizardState) => void
   setTerminalOpen: (v: boolean) => void
   setTerminalHeight: (v: number) => void
   clearTerminal: () => void
@@ -330,6 +333,7 @@ export const useStore = create<StoreState>((set, get) => ({
   terminalOpen: false,
   terminalHeight: 40,
   inputPanelOpen: false,
+  inputWizard: null,
   stdin: '',
   running: false,
   runningFileId: null,
@@ -441,7 +445,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setActiveProject: async (id) => {
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [] })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [], inputWizard: null })
       return
     }
     await projectsDb.touchProject(id)
@@ -451,7 +455,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const rootId = getRootNodeId(nodeMap)
     const lastSaved: Record<string, string> = {}
     for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved })
+    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved, inputWizard: null })
     await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
@@ -689,7 +693,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().showToast(`Converted to ${to.toUpperCase()}`, 'success')
   },
 
-  runCurrentFile: async () => {
+  runCurrentFile: async (options) => {
     const s = get()
     // Run the configured main file for this project if one exists, else active tab
     let id = s.activeTabId
@@ -710,13 +714,18 @@ export const useStore = create<StoreState>((set, get) => ({
     // Execution is intentionally batch-based: stdin must be supplied before
     // the process starts. Do not leave beginners staring at a program that is
     // waiting for input they cannot type into after Run was pressed.
-    if (programNeedsInput(lang, node.content) && s.stdin.trim().length === 0) {
+    if (programNeedsInput(lang, node.content) && s.stdin.trim().length === 0 && !options?.allowEmptyInput) {
+      const prompts = inputPrompts(lang, node.content).map((prompt) => prompt.label)
       set({ terminalOpen: true, bottomPanelTab: 'terminal', inputPanelOpen: true, running: false, runningFileId: null })
-      appendTerminal({
-        kind: 'info',
-        text: 'This program expects input. Enter all values in Program input, one value per line, then press Run again.',
-      })
-      get().showToast('Enter the program input before running.', 'info')
+      if (prompts.length) {
+        set({ inputWizard: { fileId: node.id, prompts, values: [], index: 0 } })
+      } else {
+        appendTerminal({
+          kind: 'info',
+          text: 'This program expects input. Enter all values in Program input, one value per line, then press Run again.',
+        })
+        get().showToast('Enter the program input before running.', 'info')
+      }
       return
     }
 
@@ -768,6 +777,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setStdin: (v) => set({ stdin: v }),
   setInputPanelOpen: (v) => set({ inputPanelOpen: v }),
+  setInputWizard: (wizard) => set({ inputWizard: wizard }),
   setTerminalOpen: (v) => { set({ terminalOpen: v }); get().persistEditorState() },
   setTerminalHeight: (v) => { set({ terminalHeight: v }); get().persistEditorState() },
   clearTerminal: () => set({ terminalText: [] }),
