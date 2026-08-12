@@ -17,6 +17,7 @@ import type {
   BottomPanelTab,
   GitConflict,
   ThemePalette,
+  UploadToGitHubOptions,
 } from '../types'
 import * as fsDb from '../db/files'
 import { db } from '../db/db'
@@ -36,7 +37,8 @@ import * as authService from '../services/authService'
 import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
 import { DEFAULT_SETTINGS } from '../config/defaults'
-import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { downloadProjectZip, buildSubtreeZip, storedContentToBlob, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { mimeForPath } from '../utils/binary'
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
 import { replaceInText } from '../utils/projectSearch'
@@ -125,6 +127,8 @@ interface StoreState {
   repos: GitHubRepo[]
   reposLoading: boolean
   repoBrowserOpen: boolean
+  uploadOpen: boolean
+  uploading: boolean
   commitOpen: boolean
   branchPickerOpen: boolean
   branches: GitHubBranch[]
@@ -178,6 +182,10 @@ interface StoreState {
   closeRepoBrowser: () => void
   loadRepos: () => Promise<void>
   cloneRepo: (repo: GitHubRepo) => Promise<void>
+  openUpload: () => void
+  closeUpload: () => void
+  uploadToGitHub: (opts: UploadToGitHubOptions) => Promise<void>
+  importZipIntoCurrentProject: (file: File) => Promise<void>
   openCommit: () => void
   closeCommit: () => void
   doCommit: (message: string, includeIds: string[], push: boolean) => Promise<void>
@@ -250,6 +258,8 @@ interface StoreState {
   importThemeJson: (text: string) => Promise<void>
   openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
+  downloadNode: (id: string) => Promise<void>
+  shareNode: (id: string) => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
   importProjectFromZip: (file: File) => Promise<void>
   importProjectFromFiles: (files: FileList | File[]) => Promise<void>
@@ -355,6 +365,8 @@ export const useStore = create<StoreState>((set, get) => ({
   repos: [],
   reposLoading: false,
   repoBrowserOpen: false,
+  uploadOpen: false,
+  uploading: false,
   commitOpen: false,
   branchPickerOpen: false,
   branches: [],
@@ -920,6 +932,39 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast((err as Error).message, 'error')
     }
   },
+  openUpload: () => set({ uploadOpen: true }),
+  closeUpload: () => set({ uploadOpen: false }),
+  uploadToGitHub: async (opts) => {
+    if (!requireOnline()) return
+    const pid = get().activeProjectId
+    if (!pid) return
+    set({ uploading: true })
+    try {
+      const result = await gitService.uploadProjectToGitHub(pid, opts, (p) => set({ cloneProgress: p }))
+      const fresh = await projectsDb.getProject(pid)
+      if (fresh) set((s) => ({ projects: s.projects.map((p) => (p.id === pid ? fresh : p)) }))
+      set({ uploadOpen: false, uploading: false, cloneProgress: null })
+      await get().refreshProject()
+      await get().refreshGitStatus()
+      get().showToast(`Uploaded to ${result.owner}/${result.repo}`, 'success')
+    } catch (err) {
+      set({ uploading: false, cloneProgress: null })
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  importZipIntoCurrentProject: async (file) => {
+    const pid = get().activeProjectId
+    if (!pid) return
+    try {
+      const entries = await parseZipFile(file)
+      const result = await gitService.mergeEntriesIntoProject(pid, entries)
+      await get().refreshProject()
+      await get().refreshGitStatus()
+      get().showToast(`Imported ${result.created + result.updated} file(s) from ZIP`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Could not open ZIP', 'error')
+    }
+  },
   openCommit: () => { set({ commitOpen: true }); get().refreshGitStatus() },
   closeCommit: () => set({ commitOpen: false }),
   doCommit: async (message, includeIds, push) => {
@@ -1369,6 +1414,51 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Project exported as ZIP', 'success')
     } catch (err) {
       get().showToast((err as Error).message || 'Export failed', 'error')
+    }
+  },
+  /** Download a single file, or a folder as a .zip of its subtree. */
+  downloadNode: async (id) => {
+    const node = get().nodeMap[id]
+    const pid = get().activeProjectId
+    if (!node || !pid) return
+    try {
+      const { saveAs } = await import('file-saver')
+      if (node.type === 'file') {
+        saveAs(storedContentToBlob(node.content, node.path), node.name)
+      } else {
+        const blob = await buildSubtreeZip(pid, node.path)
+        saveAs(blob, `${node.name}.zip`)
+      }
+      get().showToast(`Downloaded ${node.name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Download failed', 'error')
+    }
+  },
+  /** Share a file (or a folder as .zip) via the native share sheet. */
+  shareNode: async (id) => {
+    const node = get().nodeMap[id]
+    const pid = get().activeProjectId
+    if (!node || !pid) return
+    try {
+      const toShare = async (): Promise<File> => {
+        if (node.type === 'file') {
+          return new File([storedContentToBlob(node.content, node.path)], node.name, { type: mimeForPath(node.path) })
+        }
+        const blob = await buildSubtreeZip(pid, node.path)
+        return new File([blob], `${node.name}.zip`, { type: 'application/zip' })
+      }
+      const file = await toShare()
+      const data = { title: node.name, files: [file] }
+      const canFileShare = !navigator.canShare || navigator.canShare(data)
+      if (navigator.share && canFileShare) {
+        await navigator.share(data).catch(() => {})
+        return
+      }
+      // fallback — copy path so the user can still grab it
+      try { navigator.clipboard?.writeText(node.path) } catch {}
+      get().showToast('Sharing not supported here — path copied', 'info')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Share failed', 'error')
     }
   },
   importProjectFromEntries: async (entries, name) => {

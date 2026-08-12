@@ -2,7 +2,47 @@
 // add to the bundle when the user actually exports or imports a project.
 
 import { listAllInProject } from '../db/files'
-import { fileToStoredContent, isBinaryPath, isImagePath, mimeForPath } from './binary'
+import { fileToStoredContent, isBinaryPath, isDataUrl, isImagePath, mimeForPath } from './binary'
+
+/**
+ * Convert a stored file content (text, or a data: URL for binary files) into
+ * a real Blob suitable for downloading or sharing.
+ */
+export function storedContentToBlob(content: string, path: string): Blob {
+  if (isDataUrl(content)) {
+    try {
+      const [meta, b64] = content.slice(5).split(',')
+      const bin = atob(b64.replace(/\s/g, ''))
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      return new Blob([bytes], { type: meta.split(';')[0] || mimeForPath(path) })
+    } catch {
+      // fall through to text blob
+    }
+  }
+  return new Blob([content], { type: mimeForPath(path) })
+}
+
+/**
+ * Build a .zip archive of a folder's subtree (or a single file). File paths
+ * inside the archive are relative to the given folder so unzipping yields a
+ * clean folder. Returns a Blob (caller can save or share).
+ */
+export async function buildSubtreeZip(projectId: string, folderPath: string): Promise<Blob> {
+  const [{ default: JSZip }, files] = await Promise.all([
+    import('jszip'),
+    listAllInProject(projectId),
+  ])
+  const zip = new JSZip()
+  const prefix = folderPath === '/' ? '' : folderPath.replace(/^\//, '') + '/'
+  for (const f of files) {
+    if (f.type !== 'file' || f.isDeleted) continue
+    const rel = f.path.replace(/^\//, '')
+    if (prefix && !rel.startsWith(prefix)) continue
+    zip.file(rel.slice(prefix.length) || f.name, f.content || '')
+  }
+  return zip.generateAsync({ type: 'blob', compression: 'STORE' })
+}
 
 /**
  * Export a project's files as a downloadable .zip archive.
@@ -15,7 +55,7 @@ export async function buildProjectZip(projectId: string): Promise<Blob> {
   ])
   const zip = new JSZip()
   for (const f of files) {
-    if (f.type !== 'file') continue
+    if (f.type !== 'file' || f.isDeleted) continue
     const rel = f.path.replace(/^\//, '')
     if (rel) zip.file(rel, f.content || '')
   }

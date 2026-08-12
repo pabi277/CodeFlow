@@ -6,16 +6,18 @@ import * as fsDb from '../db/files'
 import * as projectsDb from '../db/projects'
 import { getAuth } from '../db/gitHub'
 import { db } from '../db/db'
+import { entriesToSeed } from '../utils/zip'
 import type {
   CloneProgress,
   FileNode,
   GitConflict,
   GitHubRepo,
+  GitHubTreeResponse,
   Project,
   GitHubBranch,
   GitHubCommit,
   GitHubPullRequest,
-  GitHubTreeResponse,
+  UploadToGitHubOptions,
 } from '../types'
 
 /** True when the GitHub API says the repository has no commits yet (a brand-new repo). */
@@ -59,7 +61,9 @@ export async function computeGitStatus(projectId: string, nodeMap: Record<string
   return items.sort((a, b) => a.path.localeCompare(b.path))
 }
 
-/** Clone a GitHub repo into a new local project, fetching blobs in batches of 10. */
+/** Clone a GitHub repo into a new local project, fetching blobs in batches of 10.
+ *  Empty repositories (no commits yet) clone as an empty connected project so
+ *  the user can fill it and push an initial commit. */
 export async function cloneRepository(
   repo: GitHubRepo,
   projectName: string,
@@ -129,7 +133,10 @@ export interface CommitOptions {
   push: boolean
 }
 
-/** Commit staged files and push them to the connected GitHub branch. Returns the new commit SHA. */
+/** Commit staged files and push them to the connected GitHub branch. Returns the new commit SHA.
+ *  Works on both existing branches and freshly-cloned EMPTY repositories — in the empty case
+ *  this creates the initial commit (tree without a base, commit without parents, then creates
+ *  the branch ref). */
 export async function commitChanges(projectId: string, opts: CommitOptions): Promise<string> {
   // CodeFlow has no local Git object database or pending-commit queue. Creating a
   // commit without moving the remote ref would leave it unreachable and then
@@ -145,22 +152,7 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
   }
   const { owner, repo, branch } = project.github
 
-  // 1. create blobs for each included file, collect entries
-  const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
-  const blobShas: Record<string, string> = {}
-  for (const id of opts.includeIds) {
-    const node = await fsDb.getNode(id)
-    if (!node) continue
-    if (node.isDeleted) {
-      entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: null })
-    } else {
-      const blobSha = await gh.createBlob(token, owner, repo, node.content)
-      blobShas[id] = blobSha
-      entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: blobSha })
-    }
-  }
-
-  // 2-6. ref -> commit -> tree -> new tree -> commit -> update/create ref
+  // 0. detect whether the remote branch exists yet (empty repo → initial commit)
   let baseSha: string | null = null
   let baseTree: string | null = null
   try {
@@ -173,6 +165,24 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
     // Brand-new repository with no commits — this push creates the first commit,
     // so there is no base ref/tree and the branch ref must be created, not updated.
   }
+
+  // 1. create blobs for each included file, collect entries
+  const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
+  const blobShas: Record<string, string> = {}
+  for (const id of opts.includeIds) {
+    const node = await fsDb.getNode(id)
+    if (!node) continue
+    if (node.isDeleted) {
+      // deletions only make sense when there is a commit to delete from
+      if (baseSha) entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: null })
+    } else {
+      const blobSha = await gh.createBlob(token, owner, repo, node.content)
+      blobShas[id] = blobSha
+      entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: blobSha })
+    }
+  }
+
+  // 2-6. ref -> commit -> tree -> new tree -> commit -> update/create ref
   const treeSha = await gh.createTree(token, owner, repo, baseTree, entries)
   const newCommit = await gh.createCommit(token, owner, repo, opts.message, treeSha, baseSha ? [baseSha] : [])
   if (opts.push) {
@@ -195,6 +205,154 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
   }
   await projectsDb.updateProjectGithub(projectId, { lastSyncAt: Date.now() })
   return newCommit.sha
+}
+
+export interface UploadResult {
+  owner: string
+  repo: string
+  branch: string
+}
+
+/**
+ * "Shameless upload": push ALL files of a local (not-yet-connected) project to
+ * GitHub in one go. Either creates a brand-new repository or pushes into an
+ * existing EMPTY one, then makes the initial commit and connects the project.
+ */
+export async function uploadProjectToGitHub(
+  projectId: string,
+  opts: UploadToGitHubOptions,
+  onProgress?: (p: CloneProgress) => void,
+): Promise<UploadResult> {
+  const token = await requireToken()
+  const project = await projectsDb.getProject(projectId)
+  if (!project) throw new Error('Project not found.')
+  if (project.github.connected) {
+    throw new Error('This project is already connected to GitHub — use Commit & Push instead.')
+  }
+
+  // 1. decide the target repo
+  let owner: string
+  let repo: string
+  let branch: string
+  if (opts.owner && opts.repo) {
+    const existing = await gh.getRepo(token, opts.owner, opts.repo)
+    owner = existing.full_name.split('/')[0]
+    repo = existing.name
+    branch = existing.default_branch
+    const branches = await gh.listBranches(token, owner, repo)
+    if (branches.length > 0) {
+      throw new Error(`"${owner}/${repo}" is not empty — clone it and commit from there instead.`)
+    }
+  } else {
+    const name = (opts.repoName || project.name).trim()
+    if (!name) throw new Error('Repository name is required.')
+    const created = await gh.createRepo(token, {
+      name,
+      description: opts.description,
+      private: opts.private,
+    })
+    owner = created.full_name.split('/')[0]
+    repo = created.name
+    branch = created.default_branch || 'main'
+  }
+
+  // 2. collect local files
+  const files = (await fsDb.listAllInProject(projectId)).filter((n) => n.type === 'file' && !n.isDeleted)
+  onProgress?.({ label: `Uploading ${files.length} file(s)…`, done: 0, total: Math.max(files.length, 1) })
+
+  // 3. blobs in batches of 10
+  const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
+  const blobShas: Record<string, string> = {}
+  let done = 0
+  for (let i = 0; i < files.length; i += 10) {
+    const batch = files.slice(i, i + 10)
+    await Promise.all(
+      batch.map(async (n) => {
+        const blobSha = await gh.createBlob(token, owner, repo, n.content)
+        blobShas[n.id] = blobSha
+        entries.push({ path: toRepoPath(n.path), mode: '100644', type: 'blob', sha: blobSha })
+      }),
+    )
+    done += batch.length
+    onProgress?.({ label: `Uploaded ${Math.min(done, files.length)} of ${files.length} files…`, done, total: files.length })
+  }
+
+  // 4. initial commit — no base tree, no parents, then create the branch ref
+  onProgress?.({ label: 'Creating initial commit…', done: files.length, total: files.length })
+  const treeSha = await gh.createTree(token, owner, repo, null, entries)
+  const message = (opts.message || 'Initial commit').trim() || 'Initial commit'
+  const commit = await gh.createCommit(token, owner, repo, message, treeSha, [])
+  await gh.createRef(token, owner, repo, branch, commit.sha)
+
+  // 5. local bookkeeping — every uploaded file is now tracked
+  for (const n of files) {
+    await fsDb.syncGitFile(n.id, n.content, blobShas[n.id] || '')
+  }
+  await projectsDb.updateProjectGithub(projectId, { owner, repo, branch, lastSyncAt: Date.now(), connected: true })
+  return { owner, repo, branch }
+}
+
+/**
+ * Merge flat {path, content} entries (e.g. from a parsed ZIP) into an existing
+ * project's file tree — creating folders/files as needed and overwriting files
+ * that already exist. Returns how many files were created/updated.
+ */
+export async function mergeEntriesIntoProject(
+  projectId: string,
+  entries: { path: string; content: string }[],
+): Promise<{ created: number; updated: number }> {
+  const project = await projectsDb.getProject(projectId)
+  if (!project) throw new Error('Project not found.')
+  const rootId = project.rootFolderId
+
+  // strip a common top-level folder (most zips wrap the project) + junk entries
+  const seed = entriesToSeed(entries.filter((e) => !/^__MACOSX\//.test(e.path) && !/\.DS_Store$/.test(e.path)))
+
+  let created = 0
+  let updated = 0
+  for (const e of seed) {
+    const parts = e.path.split('/').filter(Boolean)
+    if (!parts.length) continue
+    const name = parts.pop()!
+    let parentId: string | null = rootId
+    let skip = false
+    for (const d of parts) {
+      const children = await fsDb.getChildren(parentId, projectId)
+      // a file with this segment's name blocks creating a folder here (git
+      // trees cannot have the same path as both file and folder)
+      if (children.some((c) => c.type === 'file' && c.name.toLowerCase() === d.toLowerCase())) { skip = true; break }
+      const existing = children.find((c) => c.type === 'folder' && c.name.toLowerCase() === d.toLowerCase())
+      if (existing) { parentId = existing.id; continue }
+      const folder = await fsDb.createNode(projectId, parentId, d, 'folder', '', { isNew: false })
+      parentId = folder.id
+    }
+    if (skip) continue
+
+    const children = await fsDb.getChildren(parentId, projectId)
+    const existing = children.find((c) => c.type === 'file' && c.name.toLowerCase() === name.toLowerCase())
+    if (existing) {
+      if (existing.content !== e.content) {
+        const tracked = !existing.isNew && existing.gitSha != null
+        await db.files.update(existing.id, {
+          content: e.content,
+          modifiedAt: Date.now(),
+          // tracked files become "modified"; untracked files stay new
+          isGitModified: tracked ? true : existing.isGitModified,
+        })
+        updated++
+      }
+    } else {
+      // a folder with the file's name blocks creating the file
+      if (children.some((c) => c.type === 'folder' && c.name.toLowerCase() === name.toLowerCase())) continue
+      try {
+        await fsDb.createNode(projectId, parentId, name, 'file', e.content)
+        created++
+      } catch {
+        // skip entries that collide for any other reason
+      }
+    }
+  }
+  return { created, updated }
 }
 
 export interface PullResult {

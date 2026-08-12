@@ -24,6 +24,7 @@ import { ContextMenu } from './components/Shared/ContextMenu'
 import { ProgramInputWizard } from './components/ProgramInputWizard'
 import { Toasts } from './components/Shared/Toasts'
 import { RepoBrowser } from './components/GitHub/RepoBrowser'
+import { UploadModal } from './components/GitHub/UploadModal'
 import { CommitModal } from './components/GitHub/CommitModal'
 import { DiffViewer } from './components/GitHub/DiffViewer'
 import { BranchPicker } from './components/GitHub/BranchPicker'
@@ -152,6 +153,7 @@ export default function App() {
         onClose={() => useStore.getState().setImportProjectOpen(false)}
       />
       <RepoBrowser />
+      <UploadModal />
       <CommitModal />
       <DiffViewer />
       <BranchPicker />
