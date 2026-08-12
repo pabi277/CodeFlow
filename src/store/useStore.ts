@@ -43,6 +43,7 @@ import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorA
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
+import { programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
@@ -100,6 +101,7 @@ interface StoreState {
   // terminal / execution
   terminalOpen: boolean
   terminalHeight: number
+  inputPanelOpen: boolean
   stdin: string
   running: boolean
   runningFileId: string | null
@@ -279,6 +281,7 @@ interface StoreState {
   // execution
   runCurrentFile: () => Promise<void>
   setStdin: (v: string) => void
+  setInputPanelOpen: (v: boolean) => void
   setTerminalOpen: (v: boolean) => void
   setTerminalHeight: (v: number) => void
   clearTerminal: () => void
@@ -326,6 +329,7 @@ export const useStore = create<StoreState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
+  inputPanelOpen: false,
   stdin: '',
   running: false,
   runningFileId: null,
@@ -702,6 +706,20 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Code execution requires internet connection. Your code is saved and will run when you are back online.', 'info')
       return
     }
+
+    // Execution is intentionally batch-based: stdin must be supplied before
+    // the process starts. Do not leave beginners staring at a program that is
+    // waiting for input they cannot type into after Run was pressed.
+    if (programNeedsInput(lang, node.content) && s.stdin.length === 0) {
+      set({ terminalOpen: true, bottomPanelTab: 'terminal', inputPanelOpen: true, running: false, runningFileId: null })
+      appendTerminal({
+        kind: 'info',
+        text: 'This program expects input. Enter all values in Program input, one value per line, then press Run again.',
+      })
+      get().showToast('Enter the program input before running.', 'info')
+      return
+    }
+
     set({ running: true, runningFileId: node.id, terminalOpen: true })
     appendTerminal({ kind: 'system', text: `Running ${node.name} (${languageName(lang)})…` })
     const start = Date.now()
@@ -749,6 +767,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   setStdin: (v) => set({ stdin: v }),
+  setInputPanelOpen: (v) => set({ inputPanelOpen: v }),
   setTerminalOpen: (v) => { set({ terminalOpen: v }); get().persistEditorState() },
   setTerminalHeight: (v) => { set({ terminalHeight: v }); get().persistEditorState() },
   clearTerminal: () => set({ terminalText: [] }),

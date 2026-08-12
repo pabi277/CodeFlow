@@ -45,12 +45,13 @@ function TerminalPanel() {
   const clearTerminal = useStore((s) => s.clearTerminal)
   const stdin = useStore((s) => s.stdin)
   const setStdin = useStore((s) => s.setStdin)
+  const inputPanelOpen = useStore((s) => s.inputPanelOpen)
+  const setInputPanelOpen = useStore((s) => s.setInputPanelOpen)
   const history = useStore((s) => s.history)
   const loadHistory = useStore((s) => s.loadHistory)
   const tab = useStore((s) => s.bottomPanelTab)
   const setTab = useStore((s) => s.setBottomPanelTab)
   const diagnostics = useStore((s) => s.diagnostics)
-  const [showInput, setShowInput] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
   const outputRef = useRef<HTMLDivElement>(null)
@@ -92,7 +93,7 @@ function TerminalPanel() {
         <span className="flex-1" />
         {tab === 'terminal' && (
           <>
-            <TermBtn label="Input" onClick={() => setShowInput((v) => !v)} active={showInput}><VscTerminal /></TermBtn>
+            <TermBtn label="Program input" onClick={() => setInputPanelOpen(!inputPanelOpen)} active={inputPanelOpen}><VscTerminal /></TermBtn>
             <TermBtn label="History" onClick={() => { setShowHistory((v) => !v); loadHistory() }} active={showHistory}><VscHistory /></TermBtn>
             <TermBtn label="Clear" onClick={clearTerminal}><VscClearAll /></TermBtn>
           </>
@@ -134,14 +135,18 @@ function TerminalPanel() {
         </div>
       )}
 
-      {tab === 'terminal' && showInput && (
-        <div className="border-t border-border/60 p-3">
-          <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Stdin</label>
+      {tab === 'terminal' && inputPanelOpen && (
+        <div className="border-t border-border/60 bg-accent/5 p-3">
+          <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Program input</label>
+          <p className="mb-2 text-[11px] leading-relaxed text-ink-muted">
+            Enter all values before Run, one value per line. The program cannot wait for typing after it starts.
+          </p>
           <textarea
             value={stdin}
             onChange={(e) => setStdin(e.target.value)}
-            rows={2}
-            placeholder="Input passed to your program (e.g. 5\nhello)"
+            rows={3}
+            placeholder={'Example:\n5\nhello'}
+            aria-label="Program input, one value per line"
             className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
           />
         </div>

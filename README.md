@@ -149,7 +149,8 @@ src/
 
 - **JavaScript / TypeScript** run **locally** in a sandboxed `Function` capturing `console` — no API key needed.
 - **Other languages** require a **Judge0 CE API key** (RapidAPI). Paste it in **Settings → Execution**. Without a key, those languages show a friendly mock so the flow still works.
-- Stdin is provided via the **Input** toggle in the terminal panel.
+- Programs use **batch input**: open **Program input** in the terminal, enter all values before pressing Run (one value per line), and then run the file. CodeFlow does not wait for typing after execution starts.
+- JavaScript/TypeScript also support `input()`, `readline()`, and `prompt()` using the values entered in Program input.
 
 ## 🚀 Getting started
 
