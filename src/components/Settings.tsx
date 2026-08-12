@@ -25,6 +25,7 @@ export function Settings() {
   const rateLimit = useStore((s) => s.rateLimit)
   const loadRateLimit = useStore((s) => s.loadRateLimit)
   const termuxAvailable = useStore((s) => s.termuxAvailable)
+  const termuxError = useStore((s) => s.termuxError)
   const refreshTermuxStatus = useStore((s) => s.refreshTermuxStatus)
   const exportProjectZip = useStore((s) => s.exportProjectZip)
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
@@ -261,10 +262,15 @@ export function Settings() {
                 <span className="flex items-center gap-1 text-amber-400"><AiOutlineWarning /> Termux bridge not running</span>
               )}
             </div>
+            {!termuxAvailable && termuxError && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-amber-300/90">{termuxError}</p>
+            )}
             <p className="mt-1.5 text-[11px] text-ink-muted">
-              Termux is the backend: it runs Python with the whole project (imports work)
-              and serves HTML/CSS/JS as a live preview server. Copy the latest v2 bridge
-              script below if you still have the old one.
+              Open <b className="text-ink">this Vercel site on the same Android phone</b> that
+              runs Termux. A PC browser cannot reach Termux. Copy the <b className="text-ink">latest</b>
+              bridge script (it allows Chrome to talk to localhost from HTTPS), restart
+              <span className="font-mono"> node termux-bridge.js</span>, then tap Refresh and
+              <b className="text-ink"> Allow</b> if Chrome asks for local network access.
             </p>
             <div className="mt-2 flex gap-2">
               <button onClick={copyBridgeScript} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/15 px-3 py-2 text-[12px] font-medium text-accent active:opacity-80">

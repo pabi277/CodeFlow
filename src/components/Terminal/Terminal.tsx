@@ -50,8 +50,14 @@ function TerminalPanel() {
   const tab = useStore((s) => s.bottomPanelTab)
   const setTab = useStore((s) => s.setBottomPanelTab)
   const diagnostics = useStore((s) => s.diagnostics)
+  const liveSessionId = useStore((s) => s.liveSessionId)
+  const livePromptOpen = useStore((s) => s.livePromptOpen)
+  const sendLiveInput = useStore((s) => s.sendLiveInput)
+  const stopLiveRun = useStore((s) => s.stopLiveRun)
   const [showInput, setShowInput] = useState(false)
+  const [liveLine, setLiveLine] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const inputOpen = showInput || livePromptOpen || !!liveSessionId
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
   const outputRef = useRef<HTMLDivElement>(null)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -92,7 +98,7 @@ function TerminalPanel() {
         <span className="flex-1" />
         {tab === 'terminal' && (
           <>
-            <TermBtn label="Input" onClick={() => setShowInput((v) => !v)} active={showInput}><VscTerminal /></TermBtn>
+            <TermBtn label="Input" onClick={() => setShowInput((v) => !v)} active={inputOpen}><VscTerminal /></TermBtn>
             <TermBtn label="History" onClick={() => { setShowHistory((v) => !v); loadHistory() }} active={showHistory}><VscHistory /></TermBtn>
             <TermBtn label="Clear" onClick={clearTerminal}><VscClearAll /></TermBtn>
           </>
@@ -134,16 +140,43 @@ function TerminalPanel() {
         </div>
       )}
 
-      {tab === 'terminal' && showInput && (
+      {tab === 'terminal' && inputOpen && (
         <div className="border-t border-border/60 p-3">
-          <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Stdin</label>
-          <textarea
-            value={stdin}
-            onChange={(e) => setStdin(e.target.value)}
-            rows={2}
-            placeholder="Input passed to your program (e.g. 5\nhello)"
-            className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
-          />
+          {liveSessionId ? (
+            <>
+              <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Type for scanf / input()</label>
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const v = liveLine
+                  setLiveLine('')
+                  void sendLiveInput(v)
+                }}
+              >
+                <input
+                  value={liveLine}
+                  onChange={(e) => setLiveLine(e.target.value)}
+                  placeholder="e.g. 1   then Send, then 42"
+                  autoComplete="off"
+                  className="min-w-0 flex-1 rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent"
+                />
+                <button type="submit" className="rounded-lg bg-accent px-3 py-2 text-[12px] font-semibold text-white">Send</button>
+                <button type="button" onClick={() => void stopLiveRun()} className="rounded-lg bg-red-500/80 px-3 py-2 text-[12px] font-semibold text-white">Stop</button>
+              </form>
+            </>
+          ) : (
+            <>
+              <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Stdin (one value per line, used on next Run)</label>
+              <textarea
+                value={stdin}
+                onChange={(e) => setStdin(e.target.value)}
+                rows={3}
+                placeholder={"1\n42\n7"}
+                className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
+              />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -185,9 +218,15 @@ function SourceBadge({ source }: { source: string }) {
   )
 }
 
+const HEAVY_PARSE_LIMIT = 8_000
+
 function TerminalText({ text }: { text: string }) {
   const goToLocation = useStore((s) => s.goToLocation)
   const nodeMap = useStore((s) => s.nodeMap)
+  // Huge compiler dumps used to freeze the whole PWA (regex + React).
+  if (text.length > HEAVY_PARSE_LIMIT) {
+    return <span>{text.slice(0, HEAVY_PARSE_LIMIT)}{'\n'}… output truncated for performance …</span>
+  }
   const spans = parseAnsi(text)
   const plain = stripAnsi(text)
   const links = extractTerminalLinks(plain)

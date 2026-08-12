@@ -1,4 +1,5 @@
 // Completions for relative import / from paths.
+import { C_SYSTEM_HEADERS } from '../editor/cLanguage'
 
 export interface ImportFile {
   path: string
@@ -9,11 +10,15 @@ export interface ImportMatch {
   from: number
   prefix: string
   quote: string | null
-  style: 'js' | 'python'
+  style: 'js' | 'python' | 'c'
 }
 
 /** Look at the text before the cursor on the current line. */
 export function matchImportContext(linePrefix: string): ImportMatch | null {
+  const cInc = linePrefix.match(/#\s*include\s*([<"])([^>"]*)$/)
+  if (cInc) {
+    return { from: linePrefix.length - cInc[2].length, prefix: cInc[2], quote: cInc[1], style: 'c' }
+  }
   const js = linePrefix.match(/(?:from|import)\s*(['"])(\.[^'"]*)$/)
   if (js) {
     return { from: linePrefix.length - js[2].length, prefix: js[2], quote: js[1], style: 'js' }
@@ -33,8 +38,11 @@ export function suggestImportPaths(
   currentPath: string,
   prefix: string,
   files: ImportFile[],
-  style: 'js' | 'python',
+  style: 'js' | 'python' | 'c',
 ): string[] {
+  if (style === 'c') {
+    return suggestCIncludes(prefix, files)
+  }
   const dir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/')) || '/' : '/'
   const out: string[] = []
   const seen = new Set<string>()
@@ -53,6 +61,27 @@ export function suggestImportPaths(
     if (out.length >= 30) break
   }
   return out.sort((a, b) => a.length - b.length || a.localeCompare(b))
+}
+
+function suggestCIncludes(prefix: string, files: ImportFile[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const p = prefix.toLowerCase()
+  for (const f of files) {
+    if (!/\.h$/i.test(f.path)) continue
+    const name = f.path.replace(/^\/+/, '')
+    if (p && !name.toLowerCase().includes(p) && !f.name.toLowerCase().startsWith(p)) continue
+    if (seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  for (const h of C_SYSTEM_HEADERS) {
+    if (p && !h.toLowerCase().startsWith(p) && !h.includes(p)) continue
+    if (seen.has(h)) continue
+    seen.add(h)
+    out.push(h)
+  }
+  return out.slice(0, 30)
 }
 
 function relativeImport(fromDir: string, targetPath: string, style: 'js' | 'python'): string {

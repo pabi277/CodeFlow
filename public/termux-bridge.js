@@ -29,7 +29,7 @@ const os = require('os')
 const path = require('path')
 const fs = require('fs')
 
-const VERSION = '2.0'
+const VERSION = '2.1'
 const HOST = '127.0.0.1'
 const PORT = 8080
 const EXEC_TIMEOUT_MS = 10000
@@ -47,7 +47,7 @@ function ensureTmpDir() {
 const RUNNERS = {
   python: {
     label: 'Python', kind: 'script', ext: '.py', check: 'python3', fallbackCheck: 'python',
-    run: ['python3'], install: 'pkg install python',
+    run: ['python3', '-u'], install: 'pkg install python',
   },
   javascript: {
     label: 'Node.js', kind: 'script', ext: '.js', check: 'node',
@@ -83,7 +83,7 @@ const RUNNERS = {
     compile: ['kotlinc', '-include-runtime'], run: ['java', '-jar'], install: 'pkg install kotlin',
   },
   perl: { label: 'Perl', kind: 'script', ext: '.pl', check: 'perl', run: ['perl'], install: 'pkg install perl' },
-  lua: { label: 'Lua', kind: 'script', ext: '.lua', check: 'lua', run: ['lua'], install: 'pkg install lua54' },
+  lua: { label: 'Lua', kind: 'script', ext: '.lua', check: 'lua', fallbackCheck: 'lua54', run: ['lua'], install: 'pkg install lua54' },
   swift: { label: 'Swift', kind: 'script', ext: '.swift', check: 'swift', run: ['swift'], install: null },
 }
 
@@ -169,6 +169,78 @@ function runProcess(cmdArgs, cwd, stdin, timeoutMs, extraEnv) {
   })
 }
 
+const INTERACTIVE_MS = 5 * 60 * 1000
+const sessions = new Map()
+
+function writeUnbufHelper() {
+  ensureTmpDir()
+  const p = path.join(TMP_DIR, 'codeflow_unbuf.c')
+  fs.writeFileSync(p, [
+    '#include <stdio.h>',
+    '__attribute__((constructor)) static void codeflow_unbuf(void) {',
+    '  setvbuf(stdout, NULL, _IONBF, 0);',
+    '  setvbuf(stderr, NULL, _IONBF, 0);',
+    '}',
+    '',
+  ].join('\n'))
+  return p
+}
+
+function spawnInteractive(cmdArgs, cwd, extraEnv) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  const child = spawn(cmdArgs[0], cmdArgs.slice(1), {
+    cwd: cwd || TMP_DIR,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+  })
+  const sess = {
+    id, child, stdout: '', stderr: '', done: false, code: null, timedOut: false, started: Date.now(),
+  }
+  child.stdout.on('data', (d) => { sess.stdout = appendStream(sess.stdout, d) })
+  child.stderr.on('data', (d) => { sess.stderr = appendStream(sess.stderr, d) })
+  child.on('error', (err) => {
+    sess.stderr = appendStream(sess.stderr, err.message)
+    sess.done = true
+    sess.code = 1
+  })
+  child.on('close', (code) => {
+    sess.done = true
+    sess.code = code
+    clearTimeout(sess.timer)
+  })
+  sess.timer = setTimeout(() => {
+    sess.timedOut = true
+    try { child.kill('SIGKILL') } catch { /* ignore */ }
+  }, INTERACTIVE_MS)
+  sessions.set(id, sess)
+  return sess
+}
+
+function sessionPayload(sess) {
+  return {
+    sessionId: sess.id,
+    interactive: true,
+    stdout: sess.stdout,
+    stderr: sess.timedOut ? (sess.stderr || 'Interactive session timed out after 5 minutes') : sess.stderr,
+    done: sess.done,
+    success: sess.done && sess.code === 0 && !sess.timedOut,
+    timedOut: sess.timedOut,
+    executionTime: Date.now() - sess.started,
+    source: 'termux',
+  }
+}
+
+function getSession(id) {
+  return id ? sessions.get(String(id)) : null
+}
+
+function killSession(sess) {
+  if (!sess) return
+  try { sess.child.kill('SIGKILL') } catch { /* ignore */ }
+  sess.done = true
+  clearTimeout(sess.timer)
+}
+
 function javaClassName(code) {
   const m = code.match(/public\s+class\s+([A-Za-z_]\w*)/)
   return m ? m[1] : null
@@ -182,7 +254,7 @@ function guessEntry(files, language) {
   return names.find((p) => p.endsWith(ext)) || names[0] || null
 }
 
-async function executeLanguage(language, code, stdin, files, entry) {
+async function executeLanguage(language, code, stdin, files, entry, interactive) {
   const runner = RUNNERS[language]
   let bin = runner.check
   if (!isInstalled(bin) && runner.fallbackCheck && isInstalled(runner.fallbackCheck)) {
@@ -220,23 +292,39 @@ async function executeLanguage(language, code, stdin, files, entry) {
 
   try {
     if (runner.kind === 'script') {
-      const runCmd = runner.run.map((a) => (a === 'BIN' ? bin : a))
+      const runCmd = runner.run.map((a) => (a === 'BIN' || a === runner.check ? bin : a))
       const cmd = [...runCmd, file]
+      if (interactive) {
+        const sess = spawnInteractive(cmd, cwd, extraEnv)
+        if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
+        return { session: sess }
+      }
       const r = await runProcess(cmd, cwd, stdin, EXEC_TIMEOUT_MS, extraEnv)
       return { success: r.code === 0, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, exitCode: r.code }
     }
 
     if (runner.kind === 'go') {
+      if (interactive) {
+        const sess = spawnInteractive(['go', 'run', file], cwd, extraEnv)
+        if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
+        return { session: sess }
+      }
       const r = await runProcess(['go', 'run', file], cwd, stdin, EXEC_TIMEOUT_MS, extraEnv)
       return { success: r.code === 0, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, exitCode: r.code }
     }
 
     if (runner.kind === 'compile') {
       const out = file + '.out'
-      const compileCmd = [...runner.compile, file, '-o', out]
+      const unbuf = writeUnbufHelper()
+      const compileCmd = [...runner.compile, file, unbuf, '-o', out]
       const c = await runProcess(compileCmd, cwd, '', 15000)
       if (c.code !== 0) {
         return { success: false, stdout: '', stderr: c.stderr, compileError: true, timedOut: c.timedOut }
+      }
+      if (interactive) {
+        const sess = spawnInteractive([out], cwd)
+        if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
+        return { session: sess }
       }
       const r = await runProcess([out], cwd, stdin, EXEC_TIMEOUT_MS)
       try { fs.unlinkSync(out) } catch { /* ignore */ }
@@ -356,7 +444,7 @@ function servePreview(req, res, url) {
 }
 
 const server = http.createServer((req, res) => {
-  cors(res)
+  cors(req, res)
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
     return res.end()
@@ -369,6 +457,7 @@ const server = http.createServer((req, res) => {
       status: 'ok',
       version: VERSION,
       preview: true,
+      interactive: true,
       message: 'CodeFlow Termux Bridge running',
     })
   }
@@ -396,7 +485,7 @@ const server = http.createServer((req, res) => {
         let data
         try { data = JSON.parse(raw) } catch { return send(res, 400, { error: 'Invalid JSON body' }) }
 
-        const { language, code = '', stdin = '', files, entry } = data
+        const { language, code = '', stdin = '', files, entry, interactive } = data
         if (typeof language !== 'string' || !WHITELIST.has(language)) {
           console.log(`[error] language=${language || '(none)'} | not supported`)
           return send(res, 200, {
@@ -410,8 +499,12 @@ const server = http.createServer((req, res) => {
         const t0 = Date.now()
         const extra = files && typeof files === 'object' ? ` | files=${Object.keys(files).length}` : ''
         console.log(`[execute] language=${language} | chars=${code.length}${extra}`)
-        executeLanguage(language, code, stdin, files, entry)
+        executeLanguage(language, code, stdin, files, entry, !!interactive)
           .then((r) => {
+            if (r.session) {
+              setTimeout(() => send(res, 200, sessionPayload(r.session)), 80)
+              return
+            }
             const executionTime = Date.now() - t0
             let status = r.success
             let outStderr = r.stderr || ''
