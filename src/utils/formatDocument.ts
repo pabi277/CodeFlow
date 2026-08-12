@@ -39,7 +39,8 @@ export async function formatDocument(content: string, language: string, tabSize 
   const parser = PRETTIER_PARSERS[language]
   if (parser) {
     try {
-      const prettier = await import('prettier/standalone')
+      const prettier = await loadPrettier()
+      if (!prettier) return { ok: true, text: tidyWhitespace(content) }
       const plugins = await loadPrettierPlugins(parser)
       const text = await prettier.format(content, {
         parser,
@@ -50,12 +51,27 @@ export async function formatDocument(content: string, language: string, tabSize 
       return { ok: true, text }
     } catch (err) {
       const msg = (err as Error).message || 'Prettier failed'
+      if (/not installed|Cannot find module|Failed to resolve/i.test(msg)) {
+        return { ok: true, text: tidyWhitespace(content) }
+      }
       if (/SyntaxError|Unexpected|Parse/i.test(msg)) return { ok: false, error: msg }
       return { ok: true, text: tidyWhitespace(content) }
     }
   }
 
   return { ok: true, text: tidyWhitespace(content) }
+}
+
+async function loadPrettier(): Promise<{ format: (src: string, opts: object) => Promise<string> } | null> {
+  try {
+    const mod = await import('prettier/standalone')
+    const format = (mod as { format?: unknown; default?: { format?: unknown } }).format
+      || (mod as { default?: { format?: unknown } }).default?.format
+    if (typeof format !== 'function') return null
+    return { format: format as (src: string, opts: object) => Promise<string> }
+  } catch {
+    return null
+  }
 }
 
 async function loadPrettierPlugins(parser: string): Promise<object[]> {

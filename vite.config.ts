@@ -1,11 +1,54 @@
-import { defineConfig } from 'vite'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const require = createRequire(import.meta.url)
+
+const PRETTIER_FILES: Record<string, string> = {
+  'prettier/standalone': 'standalone.mjs',
+  'prettier/plugins/babel': 'plugins/babel.mjs',
+  'prettier/plugins/estree': 'plugins/estree.mjs',
+  'prettier/plugins/typescript': 'plugins/typescript.mjs',
+  'prettier/plugins/html': 'plugins/html.mjs',
+  'prettier/plugins/postcss': 'plugins/postcss.mjs',
+  'prettier/plugins/markdown': 'plugins/markdown.mjs',
+}
+
+function prettierRoot(): string | null {
+  try {
+    return path.dirname(require.resolve('prettier/package.json'))
+  } catch {
+    return null
+  }
+}
+
+/** Resolve Prettier to real files, or a stub if `npm install` hasn't pulled it in. */
+function optionalPrettier(): Plugin {
+  const root = prettierRoot()
+  return {
+    name: 'optional-prettier',
+    enforce: 'pre',
+    resolveId(id) {
+      const spec = id.split('?')[0]
+      const file = PRETTIER_FILES[spec]
+      if (!file) return null
+      if (root) return path.join(root, file)
+      return `\0missing:${spec}`
+    },
+    load(id) {
+      if (!id.startsWith('\0missing:')) return null
+      return `export const format = async () => { throw new Error('Prettier is not installed. From the project folder run: npm install') }\nexport default { format }\n`
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    optionalPrettier(),
     react(),
     tailwindcss(),
     VitePWA({
@@ -53,5 +96,8 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 4173,
+  },
+  optimizeDeps: {
+    include: prettierRoot() ? Object.keys(PRETTIER_FILES) : [],
   },
 })
