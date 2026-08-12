@@ -868,14 +868,21 @@ export const useStore = create<StoreState>((set, get) => ({
   // ---- GitHub actions ----
   connectGitHub: () => {
     try { navigator.vibrate?.(10) } catch {}
-    authService.beginOAuth()
+    try {
+      authService.beginOAuth()
+    } catch (err) {
+      get().showToast(authService.oauthErrorMessage(err), 'error')
+    }
   },
   handleCallback: async () => {
     try {
       const auth = await authService.handleOAuthCallback()
-      if (auth) set({ auth })
+      if (auth) {
+        set({ auth })
+        get().showToast('Connected to GitHub', 'success')
+      }
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(authService.oauthErrorMessage(err), 'error')
     }
   },
   disconnectGitHub: async () => {
