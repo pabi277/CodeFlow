@@ -30,7 +30,7 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **IndexedDB data layer** (Dexie) — files, projects, settings, editor state, execution history, GitHub auth stores | ✅ |
 | **UI shell** — top bar, tab bar, editor area, left drawer | ✅ |
 | **CodeMirror 6 editor** with lazy-loaded syntax highlighting (Python, JS, TS, C/C++, Java, HTML, CSS, JSON, Markdown, Go, Rust, PHP, SQL, XML, YAML, Vue, etc.) | ✅ |
-| **File explorer** — tree view, search, create/rename/delete/duplicate, long-press context menu | ✅ |
+| **File explorer** — tree view, search, create/rename/delete/duplicate, ⋮ menu on every file/folder (Download, Share, Duplicate, Change Path/Move, Rename, Copy Path, Delete) | ✅ |
 | **Tab system** — open files, active tab, dirty indicator, close with confirm | ✅ |
 | **Keyboard toolbar** — language-aware shortcut keys, arrow keys for cursor movement | ✅ |
 | **Code execution** — Judge0 (RapidAPI) with **local JS runner + mock fallback** when no API key | ✅ |
@@ -40,10 +40,13 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **PWA** — web app manifest, Workbox service worker, offline app-shell caching, install banner | ✅ |
 | Zustand store with slices (files/editor/execution/github/ui/settings) | ✅ |
 | **GitHub OAuth** — full flow with backend-proxy token exchange (Cloudflare Worker included) | ✅ |
-| **Repository browser** — searchable repo list, clone with live progress | ✅ |
+| **Repository browser** — searchable repo list, clone with live progress, empty-repo badges | ✅ |
 | **Clone repository** — fetches tree, creates folders/files, batches blob fetches (10 at a time) | ✅ |
+| **Clone empty repository** — repos with no commits clone as an empty connected project, ready to fill | ✅ |
 | **Modified-file tracking** — modified/new/deleted indicators, Git tab change list | ✅ |
-| **Commit & Push** — staging checkboxes, commit message, blob→tree→commit→ref flow | ✅ |
+| **Commit & Push** — staging checkboxes, commit message, blob→tree→commit→ref flow; creates the **initial commit** when the repo is empty | ✅ |
+| **Upload to GitHub (shameless push)** — one tap pushes ALL files of a local project to a brand-new or existing empty repo (name, visibility, description, commit message) | ✅ |
+| **Import ZIP into project** — merge a .zip's full code/structure into the current project (create/overwrite files), then Commit & Push | ✅ |
 | **Pull** — creates/updates remote files, flags conflicts without auto-resolving | ✅ |
 | **Diff viewer** — unified diff, revert (discard) per file | ✅ |
 | **Branch switching** — list branches and switch | ✅ |

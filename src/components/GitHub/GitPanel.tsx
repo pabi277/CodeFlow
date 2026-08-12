@@ -1,5 +1,6 @@
+import { useRef } from 'react'
 import { useStore } from '../../store/useStore'
-import { AiFillGithub, AiOutlineDownload, AiOutlineLink } from 'react-icons/ai'
+import { AiFillGithub, AiOutlineDownload, AiOutlineLink, AiOutlineCloudUpload, AiOutlineUpload } from 'react-icons/ai'
 import { VscGitCommit, VscCloudDownload, VscGitBranch, VscRefresh, VscGitPullRequest, VscHistory } from 'react-icons/vsc'
 import { FaPowerOff } from 'react-icons/fa'
 
@@ -11,6 +12,8 @@ export function GitPanel() {
   const connect = useStore((s) => s.connectGitHub)
   const disconnect = useStore((s) => s.disconnectGitHub)
   const openRepoBrowser = useStore((s) => s.openRepoBrowser)
+  const openUpload = useStore((s) => s.openUpload)
+  const importZipIntoCurrentProject = useStore((s) => s.importZipIntoCurrentProject)
   const openCommit = useStore((s) => s.openCommit)
   const doPull = useStore((s) => s.doPull)
   const openBranchPicker = useStore((s) => s.openBranchPicker)
@@ -23,6 +26,7 @@ export function GitPanel() {
   const gitConflicts = useStore((s) => s.gitConflicts)
   const openConflict = useStore((s) => s.openConflict)
   const connected = !!project?.github.connected && !!auth
+  const zipRef = useRef<HTMLInputElement>(null)
 
   if (!auth) {
     return (
@@ -72,11 +76,29 @@ export function GitPanel() {
             </button>
           </div>
         ) : (
-          <button onClick={openRepoBrowser} className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/20 px-4 py-3 text-[13px] font-medium text-ink-muted active:bg-white/5">
-            <AiOutlineDownload /> Clone a repository
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={openUpload} className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-3 text-[13px] font-semibold text-white active:opacity-90">
+              <AiOutlineCloudUpload /> Upload to GitHub
+            </button>
+            <button onClick={openRepoBrowser} className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink/20 px-3 py-3 text-[13px] font-medium text-ink-muted active:bg-white/5">
+              <AiOutlineDownload /> Clone repo
+            </button>
+          </div>
         )}
       </div>
+
+      {/* hidden ZIP picker — merges a ZIP into the current project */}
+      <input
+        ref={zipRef}
+        type="file"
+        accept=".zip"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) void importZipIntoCurrentProject(f)
+          e.target.value = ''
+        }}
+      />
 
       {/* action buttons */}
       <div className="grid grid-cols-3 gap-2 p-3">
@@ -85,11 +107,12 @@ export function GitPanel() {
         <ActionBtn icon={<VscRefresh />} label="Refresh" onPress={useStore.getState().refreshGitStatus} />
       </div>
 
-      {/* history / PR viewers */}
+      {/* history / PR viewers / zip import */}
       {connected && (
-        <div className="grid grid-cols-2 gap-2 px-3 pb-1">
+        <div className="grid grid-cols-3 gap-2 px-3 pb-1">
           <ActionBtn icon={<VscHistory />} label="History" onPress={openGitLog} />
           <ActionBtn icon={<VscGitPullRequest />} label="Pull Requests" onPress={openPrs} />
+          <ActionBtn icon={<AiOutlineUpload />} label="Import ZIP" onPress={() => zipRef.current?.click()} />
         </div>
       )}
 
@@ -125,7 +148,9 @@ export function GitPanel() {
             </button>
           ))
         ) : (
-          <p className="py-6 text-center text-[12px] text-ink-muted">{connected ? 'No local changes' : 'No repository connected'}</p>
+          <p className="py-6 text-center text-[12px] text-ink-muted">
+            {connected ? 'No local changes' : 'No repository connected — tap “Upload to GitHub” above'}
+          </p>
         )}
       </div>
     </div>

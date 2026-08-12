@@ -98,6 +98,30 @@ export async function createBlob(token: string, owner: string, repo: string, con
   return data.sha
 }
 
+/** Create a brand-new repository under the authenticated user. */
+export async function createRepo(
+  token: string,
+  opts: { name: string; description?: string; private?: boolean },
+): Promise<GitHubRepo> {
+  setToken(token)
+  const { data } = await client.post<GitHubRepo>('/user/repos', {
+    name: opts.name,
+    description: opts.description || '',
+    private: opts.private ?? false,
+    auto_init: false,
+    has_issues: true,
+    has_wiki: true,
+  })
+  return data
+}
+
+/** Fetch a single repository (to learn its default branch / emptiness). */
+export async function getRepo(token: string, owner: string, repo: string): Promise<GitHubRepo> {
+  setToken(token)
+  const { data } = await client.get<GitHubRepo>(`/repos/${owner}/${repo}`)
+  return data
+}
+
 export async function getRef(token: string, owner: string, repo: string, branch: string): Promise<{ object: { sha: string } }> {
   setToken(token)
   const { data } = await client.get(`/repos/${owner}/${repo}/git/ref/heads/${branch}`)
@@ -114,11 +138,14 @@ export async function createTree(
   token: string,
   owner: string,
   repo: string,
-  baseTree: string,
+  baseTree: string | null,
   tree: { path: string; mode: string; type: string; sha: string | null }[],
 ): Promise<string> {
   setToken(token)
-  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, { base_tree: baseTree, tree })
+  const payload: Record<string, unknown> = { tree }
+  // No base tree for the very first commit of a (previously empty) repository.
+  if (baseTree) payload.base_tree = baseTree
+  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, payload)
   return data.sha
 }
 
