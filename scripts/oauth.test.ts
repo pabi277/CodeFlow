@@ -1,6 +1,8 @@
 /* Regression test: GitHub OAuth callback handling in useStore.bootstrap().
  * Covers: callback auth surviving the final set() (auth-overwrite bug),
- * error toasts instead of silent swallowing, and the ?code= query fallback.
+ * error toasts instead of silent swallowing, the ?code= query fallback,
+ * hardened oauthErrorMessage (never renders "[object Object]"), and the
+ * api/exchange.js ESM export format (export default — not module.exports).
  * Run with: npx tsx scripts/oauth.test.ts */
 import 'fake-indexeddb/auto'
 import { JSDOM } from 'jsdom'
@@ -89,6 +91,70 @@ async function main() {
   exchangeBehavior = () => { exchangeCalls++; return { data: {} } }
   await useStore.getState().bootstrap()
   check('no exchange call on plain boot', exchangeCalls === 0, `calls=${exchangeCalls}`)
+
+  console.log('\n[5] oauthErrorMessage always returns a string (never "[object Object]")')
+  const { oauthErrorMessage } = await import('../src/services/authService')
+  function axiosErr(data: unknown, message = 'Request failed with status code 500'): Error & { isAxiosError: boolean; response?: { data: unknown } } {
+    const e: any = new Error(message)
+    e.isAxiosError = true
+    e.response = { data }
+    return e
+  }
+  const msgCases: Array<[string, unknown, string]> = [
+    ['server error string', axiosErr({ error: 'bad_verification_code' }), 'bad_verification_code'],
+    ['Vercel platform error { error: { code, message } }', axiosErr({ error: { code: 'FUNCTION_INVOCATION_FAILED', message: 'The function crashed at invocation.' } }), 'The function crashed at invocation.'],
+    ['Vercel code-only error', axiosErr({ error: { code: 'FUNCTION_INVOCATION_FAILED' } }), 'FUNCTION_INVOCATION_FAILED'],
+    ['error as array', axiosErr({ error: ['first_error', 'second_error'] }), 'first_error'],
+    ['plain message field', axiosErr({ message: 'Server says no.' }), 'Server says no.'],
+    ['no useful payload falls back to axios message', axiosErr({ status: 500 }), 'Request failed with status code 500'],
+    ['non-axios Error', new Error('boom'), 'boom'],
+    ['thrown plain object', { message: 'object boom' }, 'object boom'],
+    ['thrown object with error key', { error: 'nested boom' }, 'nested boom'],
+    ['thrown string', 'string boom', 'string boom'],
+    ['thrown null falls back', null, 'GitHub authentication failed. Please try again.'],
+  ]
+  let allStrings = true
+  for (const [label, input, expected] of msgCases) {
+    const out = oauthErrorMessage(input)
+    if (typeof out !== 'string') allStrings = false
+    check(`[5] ${label}`, out === expected && typeof out === 'string', `got ${JSON.stringify(out)}`)
+  }
+  check('[5] every result is a string (no [object Object])', allStrings)
+
+  console.log('\n[6] api/exchange.js is a valid ES module (export default)')
+  const { default: exchangeHandler } = await import('../api/exchange.js')
+  check('[6] handler is a function (module loads as ESM)', typeof exchangeHandler === 'function')
+  function makeRes() {
+    const r: any = { statusCode: 0, headers: {} as Record<string, string>, ended: false, body: undefined }
+    r.setHeader = (k: string, v: string) => { r.headers[k] = v }
+    r.status = (code: number) => { r.statusCode = code; return r }
+    r.json = (obj: unknown) => { r.body = obj; r.ended = true }
+    r.end = () => { r.ended = true }
+    return r
+  }
+  const optsRes = makeRes()
+  await exchangeHandler({ method: 'OPTIONS' }, optsRes)
+  check('[6] OPTIONS returns 200', optsRes.statusCode === 200 && optsRes.ended)
+  const badMethodRes = makeRes()
+  await exchangeHandler({ method: 'GET' }, badMethodRes)
+  check('[6] non-POST returns 405', badMethodRes.statusCode === 405 && badMethodRes.body?.error === 'Method not allowed')
+  const missingCodeRes = makeRes()
+  await exchangeHandler({ method: 'POST', body: {} }, missingCodeRes)
+  check('[6] missing code returns 400', missingCodeRes.statusCode === 400 && missingCodeRes.body?.error === 'Missing code')
+  const realFetch = globalThis.fetch
+  const envBackup = { id: process.env.GITHUB_CLIENT_ID, secret: process.env.GITHUB_CLIENT_SECRET }
+  try {
+    process.env.GITHUB_CLIENT_ID = 'test-client-id'
+    process.env.GITHUB_CLIENT_SECRET = 'test-client-secret'
+    globalThis.fetch = (async () => new Response(JSON.stringify({ access_token: 'gho_esm_exchange_ok' }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+    const okRes = makeRes()
+    await exchangeHandler({ method: 'POST', body: { code: 'thecode' } }, okRes)
+    check('[6] exchange returns access_token via mocked GitHub API', okRes.statusCode === 200 && okRes.body?.access_token === 'gho_esm_exchange_ok', JSON.stringify(okRes.body))
+  } finally {
+    globalThis.fetch = realFetch
+    process.env.GITHUB_CLIENT_ID = envBackup.id
+    process.env.GITHUB_CLIENT_SECRET = envBackup.secret
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)

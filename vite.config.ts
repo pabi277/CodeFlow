@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -72,17 +72,15 @@ function oauthExchangeProxy(): Plugin {
       server.middlewares.use('/api/exchange', (req, res) => {
         let body = ''
         req.on('data', (chunk: Buffer) => { body += chunk })
-        req.on('end', () => {
+        req.on('end', async () => {
           let parsed: Record<string, unknown> = {}
           try { parsed = body ? JSON.parse(body) : {} } catch { parsed = {} }
           try {
-            // The function is CommonJS (module.exports) while the root
-            // package.json is "type": "module" — compile it like Vercel does.
-            const Module = require('node:module') as typeof import('node:module')
-            const mod = new Module(exchangePath)
-            mod.paths = (Module as unknown as { _nodeModulePaths(dir: string): string[] })._nodeModulePaths(path.dirname(exchangePath))
-            ;(mod as unknown as { _compile(code: string, file: string): void })._compile(readFileSync(exchangePath, 'utf8'), exchangePath)
-            const handler = mod.exports as (req: unknown, res: OAuthRes) => void
+            // The root package.json is "type": "module", so api/exchange.js is
+            // an ES module whose handler is the default export — load it with a
+            // native dynamic import (cache-busted so edits are picked up).
+            const mod = await import(/* @vite-ignore */ `${pathToFileURL(exchangePath).href}?t=${Date.now()}`)
+            const handler = (mod as { default: (req: unknown, res: OAuthRes) => void }).default
             // Node's http.ServerResponse lacks res.status()/res.json().
             const resAdapter = new Proxy(res, {
               get(target, prop) {
