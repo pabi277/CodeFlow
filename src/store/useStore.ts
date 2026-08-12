@@ -369,6 +369,8 @@ export const useStore = create<StoreState>((set, get) => ({
   landscapeSplit: false,
   termuxAvailable: false,
   termuxError: null,
+  liveSessionId: null,
+  livePromptOpen: false,
   lastRunSource: null,
   homeAction: null,
   importProjectOpen: false,
@@ -728,6 +730,13 @@ export const useStore = create<StoreState>((set, get) => ({
         appendTerminal({ kind: 'system', text: result.compileOutput.trimEnd() })
       }
 
+      if (result.sessionId && !result.done) {
+        set({ liveSessionId: result.sessionId, running: true, livePromptOpen: true })
+        startLivePoll(result.sessionId, result.stdout.length, result.stderr.length)
+        appendTerminal({ kind: 'system', text: 'Waiting for input…', source })
+        return
+      }
+
       const elapsed = Date.now() - start
       const fail = !result.success
       appendTerminal({
@@ -754,8 +763,9 @@ export const useStore = create<StoreState>((set, get) => ({
       appendTerminal({ kind: 'system', text: `Error: ${msg}` })
       get().showToast(msg, 'error')
     } finally {
-      // Always unlock the UI — Termux success:false used to leave the shell frozen.
-      set({ running: false, runningFileId: null })
+      if (!get().liveSessionId) {
+        set({ running: false, runningFileId: null })
+      }
     }
   },
 
@@ -1373,7 +1383,7 @@ function startLivePoll(sessionId: string, outLen: number, errLen: number) {
         if (snap.done) {
           stopLivePoll()
           useStore.setState({ liveSessionId: null, running: false, runningFileId: null })
-          appendTerminal({ kind: 'system', text: snap.timedOut ? 'Session timed out' : `Done · ${snap.status}`, source: 'termux' })
+          appendTerminal({ kind: 'system', text: snap.status === 'time_limit_exceeded' ? 'Session timed out' : `Done · ${snap.status}`, source: 'termux' })
         }
       } catch {
         // keep polling until kill / timeout

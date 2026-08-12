@@ -124,6 +124,7 @@ export async function executeInTermux(
   stdin = '',
   files?: Record<string, string>,
   entry?: string,
+  interactive = false,
 ): Promise<ExecuteResult> {
   const profile = getLanguageProfile(language)
   const key = profile.termuxKey
@@ -135,8 +136,8 @@ export async function executeInTermux(
     res = await fetch(`${getBridgeOrigin()}/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ language: key, code, stdin, files: packed, entry, interactive: !!optsInteractive }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      body: JSON.stringify({ language: key, code, stdin, files: packed, entry, interactive }),
+      signal: AbortSignal.timeout(interactive ? 45_000 : FETCH_TIMEOUT_MS),
     })
   } catch {
     clearBridgeCache()

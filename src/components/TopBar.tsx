@@ -12,7 +12,9 @@ import { isHtmlPreview, isPreviewable } from '../utils/markdown'
 export function TopBar() {
   const toggleDrawer = useStore((s) => s.toggleDrawer)
   const runCurrentFile = useStore((s) => s.runCurrentFile)
+  const stopLiveRun = useStore((s) => s.stopLiveRun)
   const running = useStore((s) => s.running)
+  const liveSessionId = useStore((s) => s.liveSessionId)
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
   const setCommandPalette = useStore((s) => s.setCommandPalette)
