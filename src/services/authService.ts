@@ -86,10 +86,16 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code')
   const state = params.get('state')
+  const oauthError = params.get('error')
+  if (oauthError) {
+    sessionStorage.removeItem('cf_oauth_state')
+    if (window.history.replaceState) window.history.replaceState({}, '', '/')
+    throw new Error(params.get('error_description') || `GitHub authorization failed: ${oauthError}`)
+  }
   if (!code) return null
 
   const expectedState = sessionStorage.getItem('cf_oauth_state')
-  if (state && expectedState && state !== expectedState) {
+  if (!state || !expectedState || state !== expectedState) {
     throw new Error('OAuth state mismatch — please try again.')
   }
 

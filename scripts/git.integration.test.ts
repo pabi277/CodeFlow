@@ -146,7 +146,6 @@ async function main() {
   ok(status.some((s) => s.path === '/main.py' && s.status === 'modified'), 'main.py appears as modified')
 
   console.log('\n[4] commitChanges (push)')
-  const modifiedNode = await fsDb.getNode(py!.id)!
   const sha = await gitService.commitChanges(project.id, { message: 'update main', includeIds: [py!.id], push: true })
   ok(typeof sha === 'string' && sha.length > 0, `commit returned sha ${sha.slice(0, 7)}`)
   // remote should now reflect the change
@@ -165,19 +164,34 @@ async function main() {
   const committedNew = await fsDb.getNode(newFile.id)!
   ok(committedNew.isNew === false, 'committed file no longer marked new')
 
-  console.log('\n[6] pull with remote conflict')
+  console.log('\n[6] tracked rename -> delete old path + add new path')
+  await fsDb.renameNode(nested!.id, 'renamed.js')
+  const renamed = await fsDb.getNode(nested!.id)!
+  const renamedNodes = await fsDb.listAllInProject(project.id)
+  const renamedStatus = await gitService.computeGitStatus(project.id, Object.fromEntries(renamedNodes.map((n) => [n.id, n])))
+  ok(renamed.originalPath === '/src/util.js', 'tracked rename remembers the original path')
+  ok(renamedStatus.some((s) => s.id === nested!.id && s.status === 'modified'), 'tracked rename appears as modified')
+  await gitService.commitChanges(project.id, { message: 'rename util', includeIds: [nested!.id], push: true })
+  ok(fake.repos['octocat/hello']['src/util.js'] === undefined, 'old path removed from remote after rename')
+  ok(fake.repos['octocat/hello']['src/renamed.js'] === 'export const x = 1;\n', 'new path pushed to remote')
+
+  console.log('\n[7] pull with remote conflict')
   fake.repos['octocat/hello']['main.py'] = 'print("remote change")\n'
   await db.files.update(py!.id, { content: 'print("local change")\n', isGitModified: true })
   const result = await gitService.pullChanges(project.id)
   ok(result.conflicts.length === 1 && result.conflicts[0] === '/main.py', 'conflict flagged for double-modified file')
   ok(result.updated === 0, 'no silent overwrite on conflict')
 
-  console.log('\n[7] pull clean update (remote only)')
+  console.log('\n[8] pull clean update (remote only)')
   fake.addRepo('octocat', 'hello2', { 'main.py': 'print("hi")\n' })
   const cleanProject = await gitService.cloneRepository({ full_name: 'octocat/hello2', name: 'hello2', default_branch: 'main' } as any, 'hello2')
   fake.repos['octocat/hello2']['util_new.py'] = 'print("brand new")\n'
   const result2 = await gitService.pullChanges(cleanProject.id)
   ok(result2.created === 1, `pull created 1 new remote file (got ${result2.created})`)
+  delete fake.repos['octocat/hello2']['main.py']
+  const result3 = await gitService.pullChanges(cleanProject.id)
+  ok(result3.removedRemote.includes('/main.py'), 'unchanged remote deletion removes the local file')
+  ok(!(await fsDb.listAllInProject(cleanProject.id)).some((n) => n.path === '/main.py'), 'removed remote file is absent locally')
 
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)

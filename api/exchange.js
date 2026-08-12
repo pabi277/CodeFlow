@@ -26,6 +26,7 @@ module.exports = async function handler(req, res) {
       body = {}
     }
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) body = {}
 
   const { code, redirect_uri: redirectUri } = body
   if (!code) {
@@ -38,6 +39,8 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'OAuth proxy not configured (missing credentials).' })
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
   try {
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -51,8 +54,9 @@ module.exports = async function handler(req, res) {
         code,
         redirect_uri: redirectUri || undefined,
       }),
+      signal: controller.signal,
     })
-    const data = await tokenResponse.json()
+    const data = await tokenResponse.json().catch(() => ({}))
 
     if (data.access_token) {
       return res.status(200).json({ access_token: data.access_token })
@@ -63,6 +67,8 @@ module.exports = async function handler(req, res) {
     })
   } catch (error) {
     console.error('Token exchange error:', error)
-    return res.status(500).json({ error: 'Token exchange failed' })
+    return res.status(502).json({ error: 'GitHub token exchange timed out or failed.' })
+  } finally {
+    clearTimeout(timeout)
   }
 }

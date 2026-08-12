@@ -10,7 +10,7 @@ export function isBinaryPath(path: string): boolean {
 }
 
 export function isDataUrl(content: string): boolean {
-  return /^data:[^;]+;base64,/i.test(content.slice(0, 80))
+  return /^data:[^,]+;base64,/i.test(content.slice(0, 120))
 }
 
 export function mimeForPath(path: string): string {

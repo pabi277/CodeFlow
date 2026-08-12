@@ -45,6 +45,7 @@ import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
 import { inputPrompts, programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
+import { friendlyError } from '../utils/errors'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
@@ -403,7 +404,11 @@ export const useStore = create<StoreState>((set, get) => ({
     // that fall back to the SPA entry point before the route rewrite runs.
     if (
       typeof window !== 'undefined' &&
-      (window.location.pathname === '/auth/callback' || window.location.search.includes('code='))
+      (
+        window.location.pathname === '/auth/callback'
+        || window.location.search.includes('code=')
+        || window.location.search.includes('error=')
+      )
     ) {
       try {
         const cbAuth = await authService.handleOAuthCallback()
@@ -487,7 +492,17 @@ export const useStore = create<StoreState>((set, get) => ({
     const nodes = await fsDb.listAllInProject(pid)
     const nodeMap: Record<string, FileNode> = {}
     for (const n of nodes) nodeMap[n.id] = n
-    set({ nodeMap })
+    const validIds = new Set(nodes.map((n) => n.id))
+    set((s) => {
+      const openTabs = s.openTabs.filter((tabId) => validIds.has(tabId))
+      const activeTabId = s.activeTabId && validIds.has(s.activeTabId)
+        ? s.activeTabId
+        : openTabs[openTabs.length - 1] || null
+      const pinnedTabs = s.pinnedTabs.filter((tabId) => validIds.has(tabId))
+      const dirtyTabs = Object.fromEntries(Object.entries(s.dirtyTabs).filter(([id]) => validIds.has(id)))
+      return { nodeMap, openTabs, activeTabId, pinnedTabs, dirtyTabs }
+    })
+    await get().persistEditorState()
     get().refreshDiagnostics()
   },
 
@@ -535,6 +550,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const effectiveParent = parentId ?? rootId ?? null
       const node = await fsDb.createNode(pid, effectiveParent, name, type)
       set((s) => ({ nodeMap: { ...s.nodeMap, [node.id]: node } }))
+      void get().refreshGitStatus()
       if (effectiveParent) {
         const parent = s_nodeMap(get().nodeMap, effectiveParent)
         if (parent) set((s) => ({ nodeMap: { ...s.nodeMap, [effectiveParent]: { ...parent, childIds: [...parent.childIds, node.id] } } }))
@@ -563,6 +579,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       await fsDb.renameNode(id, newName)
       await get().refreshProject()
+      await get().refreshGitStatus()
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -581,12 +598,14 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ nodeMap, dirtyTabs, openTabs, activeTabId })
     await get().persistEditorState()
     get().refreshDiagnostics()
+    await get().refreshGitStatus()
   },
 
   duplicateNode: async (id) => {
     try {
       const node = await fsDb.duplicateNode(id)
       set((s) => ({ nodeMap: { ...s.nodeMap, [node.id]: node } }))
+      await get().refreshGitStatus()
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -619,6 +638,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await fsDb.updateContent(id, node.content)
       set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false }, lastSaved: { ...s.lastSaved, [id]: node.content } }))
       syncChannel?.postMessage({ source: TAB_SYNC_ID, type: 'files', projectId: get().activeProjectId })
+      void get().refreshGitStatus()
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -649,6 +669,7 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       await fsDb.moveNode(id, newParentId)
       await get().refreshProject()
+      await get().refreshGitStatus()
       get().showToast('Moved', 'success')
     } catch (err) {
       get().showToast((err as Error).message, 'error')
@@ -829,6 +850,7 @@ export const useStore = create<StoreState>((set, get) => ({
   openRepoBrowser: () => { set({ repoBrowserOpen: true }); get().loadRepos() },
   closeRepoBrowser: () => set({ repoBrowserOpen: false }),
   loadRepos: async () => {
+    if (!requireOnline()) return
     const auth = get().auth
     if (!auth) return
     set({ reposLoading: true })
@@ -836,7 +858,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const repos = await ghSvc.listRepos(auth.token)
       set({ repos })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     } finally {
       set({ reposLoading: false })
     }
@@ -853,7 +875,7 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast(`Cloned ${repo.full_name}`, 'success')
     } catch (err) {
       set({ cloneProgress: null })
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   openCommit: () => { set({ commitOpen: true }); get().refreshGitStatus() },
@@ -869,22 +891,24 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ commitOpen: false })
       get().showToast(`Committed ${sha.slice(0, 7)}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   openBranchPicker: () => { set({ branchPickerOpen: true }); get().loadBranches() },
   closeBranchPicker: () => set({ branchPickerOpen: false }),
   loadBranches: async () => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
       const branches = await gitService.listBranches(pid)
       set({ branches })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   doSwitchBranch: async (name) => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
@@ -893,10 +917,11 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast(`Switched to ${name}`, 'success')
       await get().doPull()
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   doCreateBranch: async (name) => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
@@ -904,7 +929,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().loadBranches()
       get().showToast(`Created branch ${name}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   doDeleteBranch: async (name) => {
@@ -916,7 +941,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().loadBranches()
       get().showToast(`Deleted ${name}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   openConflict: (fileId) => set({ conflictFileId: fileId }),
@@ -930,6 +955,10 @@ export const useStore = create<StoreState>((set, get) => ({
     else if (choice === 'local') next = conflict.local
     else {
       next = `<<<<<<< Local\n${conflict.local.replace(/\n$/, '')}\n=======\n${conflict.remote.replace(/\n$/, '')}\n>>>>>>> Remote\n`
+    }
+    if (node.isDeleted && choice !== 'local') {
+      await fsDb.restoreDeletedFile(fileId)
+      set((s) => ({ nodeMap: { ...s.nodeMap, [fileId]: { ...node, isDeleted: false } } }))
     }
     get().saveContent(fileId, next)
     if (choice === 'remote') {
@@ -952,11 +981,15 @@ export const useStore = create<StoreState>((set, get) => ({
   openDiff: (fileId) => set({ diffFileId: fileId }),
   closeDiff: () => set({ diffFileId: null }),
   discardFileChanges: async (fileId) => {
-    await gitService.discardChanges(fileId)
-    await get().refreshProject()
-    await get().refreshGitStatus()
-    set({ diffFileId: null })
-    get().showToast('Changes discarded', 'success')
+    try {
+      await gitService.discardChanges(fileId)
+      await get().refreshProject()
+      await get().refreshGitStatus()
+      set({ diffFileId: null })
+      get().showToast('Changes discarded', 'success')
+    } catch (err) {
+      get().showToast(friendlyError(err), 'error')
+    }
   },
   doPull: async () => {
     if (!requireOnline()) return
@@ -976,11 +1009,14 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ conflictFileId: result.conflictDetails[0].fileId, drawerOpen: true, drawerTab: 'git' })
       }
       if (result.deletedRemote.length) {
-        get().showToast(`WARNING: ${result.deletedRemote.length} file(s) deleted remotely were kept locally.`, 'info')
+        get().showToast(`WARNING: ${result.deletedRemote.length} changed file(s) deleted remotely were kept locally.`, 'info')
+      }
+      if (result.removedRemote.length) {
+        get().showToast(`${result.removedRemote.length} unchanged file(s) removed after remote deletion.`, 'info')
       }
     } catch (err) {
       set({ cloneProgress: null, pulling: false })
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   refreshGitStatus: async () => {
@@ -995,6 +1031,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   setFindInProject: (v) => set({ findInProjectOpen: v }),
   loadRateLimit: async () => {
+    if (!requireOnline()) return
     const auth = get().auth
     if (!auth) return
     try {
@@ -1022,25 +1059,27 @@ export const useStore = create<StoreState>((set, get) => ({
   openGitLog: () => { set({ gitLogOpen: true }); get().loadGitLog() },
   closeGitLog: () => set({ gitLogOpen: false }),
   loadGitLog: async () => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
       const commits = await gitService.getCommitLog(pid)
       set({ gitLog: commits })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   openPrs: () => { set({ prsOpen: true }); get().loadPrs() },
   closePrs: () => set({ prsOpen: false }),
   loadPrs: async () => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     try {
       const prs = await gitService.getPullRequests(pid)
       set({ prs })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyError(err), 'error')
     }
   },
   openPluginPanel: (id) => set({ activePluginPanel: id }),
