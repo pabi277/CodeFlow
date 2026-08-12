@@ -10,15 +10,17 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
+      includeAssets: ['favicon.svg', 'og.png', 'robots.txt', 'icons/apple-touch-icon.png'],
       manifest: {
         name: 'CodeFlow',
         short_name: 'CodeFlow',
-        description: 'A mobile-first code editor PWA with GitHub integration and cloud code execution.',
+        description: 'Free open-source mobile IDE. Edit, run, preview, and push to GitHub from your phone.',
+        lang: 'en',
+        categories: ['developer', 'productivity', 'utilities'],
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        orientation: 'any',
         background_color: '#1e1e2e',
         theme_color: '#1e1e2e',
         icons: [
@@ -27,7 +29,7 @@ export default defineConfig({
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
         shortcuts: [
-          { name: 'New File', url: '/', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
+          { name: 'Open editor', url: '/', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
         ],
       },
       workbox: {

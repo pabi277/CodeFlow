@@ -57,8 +57,15 @@ export function useIDEShortcuts() {
         store.formatActiveDocument()
         return
       }
+      if (e.key === '?' && !mod && !isTypingTarget(e.target)) {
+        e.preventDefault()
+        store.setShortcutsOpen(true)
+        return
+      }
       if (e.key === 'Escape') {
         if (store.commandPaletteOpen) store.setCommandPalette(false)
+        else if (store.shortcutsOpen) store.setShortcutsOpen(false)
+        else if (store.welcomeOpen) store.setWelcomeOpen(false)
         else if (store.goToLineOpen) store.setGoToLineOpen(false)
         else if (store.settingsOpen) store.setSettingsOpen(false)
         else if (store.drawerOpen) store.toggleDrawer(false)

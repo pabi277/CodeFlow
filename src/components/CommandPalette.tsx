@@ -59,6 +59,8 @@ export function CommandPalette() {
   const openBottomPanel = useStore((s) => s.openBottomPanel)
   const setViewerOpen = useStore((s) => s.setViewerOpen)
   const openPreviewInNewTab = useStore((s) => s.openPreviewInNewTab)
+  const setShortcutsOpen = useStore((s) => s.setShortcutsOpen)
+  const setWelcomeOpen = useStore((s) => s.setWelcomeOpen)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -78,6 +80,8 @@ export function CommandPalette() {
     { label: 'New Folder', run: () => { setNewItemModal({ parentId: null, type: 'folder' }); setOpen(false) } },
     { label: 'Run Code', run: () => { runCurrentFile(); setOpen(false) } },
     { label: 'Open Settings', run: () => { setSettingsOpen(true); setOpen(false) } },
+    { label: 'Keyboard Shortcuts', run: () => { setShortcutsOpen(true); setOpen(false) } },
+    { label: 'Show Welcome Tour', run: () => { setWelcomeOpen(true); setOpen(false) } },
     { label: 'Toggle Theme', run: () => updateSettings({ themePreset: settings.themePreset === 'github-light' ? 'default-dark' : 'github-light' }) },
     { label: 'Toggle Terminal', run: () => setTerminalOpen(!useStore.getState().terminalOpen) },
     { label: 'Clear Terminal', run: () => clearTerminal() },

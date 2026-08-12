@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { relativeTime } from '../utils/format'
-import { AiOutlinePlus } from 'react-icons/ai'
-import { VscTrash, VscCode, VscFolderOpened } from 'react-icons/vsc'
+import { SITE } from '../config/site'
+import { AiOutlinePlus, AiOutlineDownload, AiOutlineGithub } from 'react-icons/ai'
+import { VscTrash, VscCode, VscFolderOpened, VscQuestion } from 'react-icons/vsc'
 import { FaFolderOpen } from 'react-icons/fa'
 import { NameModal } from './Shared/NameModal'
 
@@ -16,18 +17,23 @@ const SAMPLE = [
   { path: 'js/app.js', content: 'const btn = document.getElementById("go");\nif (btn) {\n  btn.addEventListener("click", () => {\n    btn.textContent = "CSS + JS loaded!";\n  });\n}\n' },
 ]
 
+const PILLS = ['Offline', 'GitHub', 'Termux', 'Live preview', 'Open source']
+
 export function Home() {
   const projects = useStore((s) => s.projects)
   const setActiveProject = useStore((s) => s.setActiveProject)
   const newProject = useStore((s) => s.newProject)
   const deleteProject = useStore((s) => s.deleteProject)
   const showToast = useStore((s) => s.showToast)
+  const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
+  const setShortcutsOpen = useStore((s) => s.setShortcutsOpen)
+  const setWelcomeOpen = useStore((s) => s.setWelcomeOpen)
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const [creating, setCreating] = useState(false)
   const [creatingEmpty, setCreatingEmpty] = useState(false)
   const homeAction = useStore((s) => s.homeAction)
   const setHomeAction = useStore((s) => s.openHome)
 
-  // If the user triggered "New Project" from the editor, auto-open the modal
   useEffect(() => {
     if (homeAction === 'new') {
       setCreatingEmpty(true)
@@ -47,8 +53,20 @@ export function Home() {
   return (
     <div className="bg-app flex h-dvh flex-col">
       <header className="border-b border-ink/10 p-4 dark:border-white/10">
-        <h1 className="flex items-center gap-2 text-xl font-bold text-ink"><VscCode className="text-accent" /> CodeFlow</h1>
-        <p className="mt-0.5 text-[13px] text-ink-muted">Your mobile code editor</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-bold text-ink"><VscCode className="text-accent" /> {SITE.name}</h1>
+            <p className="mt-0.5 text-[13px] text-ink-muted">{SITE.tagline}</p>
+          </div>
+          <button onClick={() => setShortcutsOpen(true)} aria-label="Keyboard shortcuts" className="flex h-10 w-10 items-center justify-center rounded-lg text-ink-muted active:bg-white/10">
+            <VscQuestion />
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {PILLS.map((p) => (
+            <span key={p} className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">{p}</span>
+          ))}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -77,9 +95,13 @@ export function Home() {
             ))}
           </div>
         ) : (
-          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+          <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
             <FaFolderOpen className="text-5xl text-ink-muted" />
-            <p className="text-ink-muted">No projects yet. Create your first one.</p>
+            <h2 className="text-[16px] font-semibold text-ink">Start in 10 seconds</h2>
+            <p className="max-w-xs text-[13px] leading-relaxed text-ink-muted">
+              Create a sample project to try run, preview, and Git — or import a ZIP you already have.
+            </p>
+            <button onClick={() => setWelcomeOpen(true)} className="text-[13px] font-medium text-accent">How does it work?</button>
           </div>
         )}
       </div>
@@ -88,9 +110,20 @@ export function Home() {
         <button onClick={() => setCreating(true)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-semibold text-white active:opacity-90">
           <AiOutlinePlus /> New project (with sample files)
         </button>
-        <button onClick={() => setCreatingEmpty(true)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-ink/15 px-4 py-3 font-medium text-ink active:bg-white/5">
-          New empty project
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => setCreatingEmpty(true)} className="rounded-xl border border-ink/15 px-3 py-3 text-[13px] font-medium text-ink active:bg-white/5">
+            Empty project
+          </button>
+          <button onClick={() => setImportProjectOpen(true)} className="flex items-center justify-center gap-1.5 rounded-xl border border-ink/15 px-3 py-3 text-[13px] font-medium text-ink active:bg-white/5">
+            <AiOutlineDownload /> Import
+          </button>
+        </div>
+        <div className="flex items-center justify-between pt-1 text-[11px] text-ink-muted">
+          <button onClick={() => setSettingsOpen(true)} className="text-ink-muted">Settings</button>
+          <a href={SITE.repo} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-ink-muted">
+            <AiOutlineGithub /> MIT · GitHub
+          </a>
+        </div>
       </div>
 
       <NameModal open={creating} title="New project" placeholder="Project name" submitLabel="Create" onClose={() => setCreating(false)} onSubmit={createSample} />

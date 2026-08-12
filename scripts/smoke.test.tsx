@@ -51,6 +51,8 @@ import { StatusBar } from '../src/components/StatusBar'
 import { ProblemsPanel } from '../src/components/ProblemsPanel'
 import { OutlinePanel } from '../src/components/OutlinePanel'
 import { GoToLine } from '../src/components/GoToLine'
+import { ShortcutsHelp } from '../src/components/ShortcutsHelp'
+import { WelcomeTour } from '../src/components/WelcomeTour'
 
 let pass = 0
 let fail = 0
@@ -81,6 +83,8 @@ const COMPONENTS: [string, React.ComponentType][] = [
   ['ProblemsPanel', ProblemsPanel],
   ['OutlinePanel', OutlinePanel],
   ['GoToLine', GoToLine],
+  ['ShortcutsHelp', ShortcutsHelp],
+  ['WelcomeTour', WelcomeTour],
 ]
 
 async function main() {

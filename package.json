@@ -1,7 +1,13 @@
 {
   "name": "codeflow",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.5.0",
+  "license": "MIT",
+  "description": "A free, open-source, mobile-first code editor PWA with GitHub, Termux, and live preview.",
+  "homepage": "https://github.com/pabi277/CodeFlow#readme",
+  "bugs": { "url": "https://github.com/pabi277/CodeFlow/issues" },
+  "repository": { "type": "git", "url": "https://github.com/pabi277/CodeFlow.git" },
+  "keywords": ["code-editor", "pwa", "mobile", "ide", "android", "termux", "github", "codemirror", "open-source"],
   "type": "module",
   "scripts": {
     "dev": "vite",

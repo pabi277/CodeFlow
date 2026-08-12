@@ -352,8 +352,17 @@ export function Settings() {
         </Section>
 
         <Section title="About" icon={AiOutlineInfoCircle}>
-          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.4.0 — a mobile-first code editor PWA.</p>
-          <p className="pb-2.5 text-[12px] text-ink-muted">Built with React, CodeMirror 6, Dexie, Zustand &amp; Tailwind.</p>
+          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.5.0 — open-source mobile IDE.</p>
+          <p className="text-[12px] text-ink-muted">MIT licensed. Built with React, CodeMirror 6, Dexie, Zustand &amp; Tailwind.</p>
+          <button onClick={() => { setOpen(false); useStore.getState().setShortcutsOpen(true) }} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-accent">
+            Keyboard shortcuts
+          </button>
+          <button onClick={() => { setOpen(false); useStore.getState().setWelcomeOpen(true) }} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-accent">
+            Show welcome tour
+          </button>
+          <a href="https://github.com/pabi277/CodeFlow" target="_blank" rel="noopener noreferrer" className="block w-full border-t border-border/40 py-3 text-[14px] text-accent">
+            Source on GitHub
+          </a>
         </Section>
       </div>
     </div>

@@ -116,6 +116,8 @@ interface StoreState {
   goToLineOpen: boolean
   pendingGoTo: { fileId: string; line: number; col: number } | null
   viewerOpen: boolean
+  shortcutsOpen: boolean
+  welcomeOpen: boolean
 
   // actions
   bootstrap: () => Promise<void>
@@ -172,6 +174,8 @@ interface StoreState {
   formatActiveDocument: () => void
   clearHistory: () => Promise<void>
   setViewerOpen: (v: boolean) => void
+  setShortcutsOpen: (v: boolean) => void
+  setWelcomeOpen: (v: boolean) => void
   openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
@@ -295,6 +299,8 @@ export const useStore = create<StoreState>((set, get) => ({
   goToLineOpen: false,
   pendingGoTo: null,
   viewerOpen: false,
+  shortcutsOpen: false,
+  welcomeOpen: false,
 
   bootstrap: async () => {
     const [projects, settings, editorState, auth] = await Promise.all([
@@ -794,6 +800,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
   // ---- Phase 5 actions ----
   setViewerOpen: (v) => set({ viewerOpen: v }),
+  setShortcutsOpen: (v) => set({ shortcutsOpen: v }),
+  setWelcomeOpen: (v) => set({ welcomeOpen: v }),
   openPreviewInNewTab: async () => {
     const id = get().activeTabId
     const node = id ? get().nodeMap[id] : undefined

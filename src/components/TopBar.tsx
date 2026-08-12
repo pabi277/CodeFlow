@@ -101,6 +101,7 @@ export function TopBar() {
           <MenuItem icon={<VscCode />} label="Format Document" onPress={() => formatActiveDocument()} />
           <MenuItem icon={<AiOutlineSearch />} label="Go to Line" onPress={() => setGoToLineOpen(true)} />
           <MenuItem icon={<VscError />} label="Show Problems" onPress={() => openBottomPanel('problems')} />
+          <MenuItem icon={<AiOutlineSetting />} label="Keyboard Shortcuts" onPress={() => useStore.getState().setShortcutsOpen(true)} />
           <MenuItem icon={<AiOutlineSetting />} label="Settings" onPress={() => setSettingsOpen(true)} />
         </div>
       </BottomSheet>

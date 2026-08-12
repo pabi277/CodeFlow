@@ -1,8 +1,24 @@
-# CodeFlow 💻
+# CodeFlow
 
-A **mobile-first Progressive Web App** that brings a VS Code–style IDE experience to Android phones. Entirely a web app — install it from the browser, no app store required.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-Built to make a developer feel like they have a real IDE in their pocket: a responsive editor, a touch-optimized keyboard toolbar, cloud code execution, offline editing, and (in Phase 2) GitHub integration.
+**A free, open-source, mobile-first code editor.** Install it from the browser — no app store.
+
+Write Python, JavaScript, HTML and more on your phone. Run code, preview the web, and push to GitHub. Works offline.
+
+- **Edit** — CodeMirror 6, tabs, file tree, find, snippets, themes
+- **Run** — JS in the browser; Python and more via Termux or Judge0
+- **Preview** — live HTML/CSS/JS, optional new tab, Termux live server
+- **Ship** — clone, commit, push, pull, diffs, branches
+
+New here? Open the app, tap **How does it work?**, then **New project (with sample files)**.
+
+Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Licensed under [MIT](./LICENSE).
+
+---
+
+Built to make a developer feel like they have a real IDE in their pocket: a responsive editor, a touch-optimized keyboard toolbar, cloud code execution, offline editing, and GitHub integration.
 
 ---
 
@@ -195,5 +211,13 @@ npm run test             # run all suites
 - All API calls use HTTPS; user code runs only in Judge0's sandbox.
 
 ---
+
+## Contributing
+
+Issues and PRs are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and the [code of conduct](./CODE_OF_CONDUCT.md). Security reports: [SECURITY.md](./SECURITY.md).
+
+## License
+
+[MIT](./LICENSE) © CodeFlow contributors.
 
 Made with React, CodeMirror 6, Dexie, Zustand, Tailwind CSS & Vite.

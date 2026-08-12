@@ -3,16 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1e1e2e" />
-    <meta name="description" content="CodeFlow — a mobile-first code editor PWA." />
+    <meta name="color-scheme" content="dark light" />
+    <title>CodeFlow — mobile-first code editor PWA</title>
+    <meta name="description" content="CodeFlow is a free, open-source, mobile-first code editor. Write Python, JavaScript, and HTML on your phone with GitHub, Termux, live preview, and offline support." />
+    <meta name="keywords" content="mobile code editor, PWA IDE, Android IDE, Python on phone, Termux editor, GitHub mobile, CodeMirror, open source" />
+    <meta name="author" content="CodeFlow contributors" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://github.com/pabi277/CodeFlow" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CodeFlow" />
+    <meta property="og:title" content="CodeFlow — mobile-first code editor PWA" />
+    <meta property="og:description" content="A free, open-source IDE in your browser. Edit, run, preview, and push to GitHub from your phone." />
+    <meta property="og:url" content="https://github.com/pabi277/CodeFlow" />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:image:alt" content="CodeFlow editor logo" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="CodeFlow — mobile-first code editor" />
+    <meta name="twitter:description" content="Free open-source PWA IDE for phones. Python, JS, HTML, GitHub, Termux." />
+    <meta name="twitter:image" content="/og.png" />
+
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="CodeFlow" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="application-name" content="CodeFlow" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <title>CodeFlow</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "CodeFlow",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Android, iOS, Web",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "license": "https://opensource.org/licenses/MIT",
+        "url": "https://github.com/pabi277/CodeFlow",
+        "description": "A free, open-source, mobile-first code editor PWA with GitHub, Termux, and live HTML preview.",
+        "isAccessibleForFree": true
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main style="font-family:system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;line-height:1.5">
+        <h1>CodeFlow</h1>
+        <p>A free, open-source, mobile-first code editor. Enable JavaScript to use the app, or visit the project on <a href="https://github.com/pabi277/CodeFlow">GitHub</a>.</p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

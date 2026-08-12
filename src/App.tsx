@@ -9,6 +9,8 @@ import { KeyboardToolbar } from './components/KeyboardToolbar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { StatusBar } from './components/StatusBar'
 import { GoToLine } from './components/GoToLine'
+import { WelcomeTour, shouldShowWelcome } from './components/WelcomeTour'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { Preview } from './components/Editor/Preview'
 import { isHtmlPreview } from './utils/markdown'
 import { useIDEShortcuts } from './hooks/useIDEShortcuts'
@@ -85,6 +87,10 @@ export default function App() {
     bootstrap()
   }, [bootstrap])
 
+  useEffect(() => {
+    if (booted && shouldShowWelcome()) useStore.getState().setWelcomeOpen(true)
+  }, [booted])
+
   // Auto-enable the split editor in landscape (width > height)
   useEffect(() => {
     const onResize = () => {
@@ -142,6 +148,8 @@ export default function App() {
       <PullRequests />
       <PluginHost />
       <GoToLine />
+      <WelcomeTour />
+      <ShortcutsHelp />
       {viewerOpen && viewerFile && isHtmlPreview(viewerFile.path) && (
         <Preview
           content={viewerFile.content}
