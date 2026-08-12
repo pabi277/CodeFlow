@@ -30,6 +30,7 @@ export function Settings() {
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
   const deleteProject = useStore((s) => s.deleteProject)
   const openHome = useStore((s) => s.openHome)
+  const clearHistory = useStore((s) => s.clearHistory)
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId))
 
   const copyBridgeScript = async () => {
@@ -153,11 +154,19 @@ export function Settings() {
           <Toggle label="Word wrap" value={settings.wordWrap} onChange={(v) => update({ wordWrap: v })} />
           <Toggle label="Line numbers" value={settings.showLineNumbers} onChange={(v) => update({ showLineNumbers: v })} />
           <Toggle label="Bracket matching" value={settings.bracketMatching} onChange={(v) => update({ bracketMatching: v })} />
+          <Toggle label="Indent guides" value={settings.indentGuides} onChange={(v) => update({ indentGuides: v })} />
+          <Toggle label="Rainbow brackets" value={settings.rainbowBrackets} onChange={(v) => update({ rainbowBrackets: v })} />
+          <Toggle label="Sticky scroll" value={settings.stickyScroll} onChange={(v) => update({ stickyScroll: v })} />
+          <Toggle label="Auto-detect indent" value={settings.autoDetectIndent} onChange={(v) => update({ autoDetectIndent: v })} />
+          <Toggle label="Format on paste" value={settings.formatOnPaste} onChange={(v) => update({ formatOnPaste: v })} />
           <Toggle label="Code minimap" value={settings.showMinimap} onChange={(v) => update({ showMinimap: v })} />
+          <Toggle label="Breadcrumbs" value={settings.showBreadcrumbs} onChange={(v) => update({ showBreadcrumbs: v })} />
+          <Toggle label="Status bar" value={settings.showStatusBar} onChange={(v) => update({ showStatusBar: v })} />
         </Section>
 
         <Section title="Auto Save" icon={VscSave}>
           <Toggle label="Enable auto save" value={settings.autoSave} onChange={(v) => update({ autoSave: v })} />
+          <Toggle label="Format on save" value={settings.formatOnSave} onChange={(v) => update({ formatOnSave: v })} />
           <div className="flex items-center justify-between py-2.5">
             <span className="text-[14px] text-ink">Delay · {settings.autoSaveDelay}ms</span>
             <input type="range" min={500} max={5000} step={250} value={settings.autoSaveDelay} onChange={(e) => update({ autoSaveDelay: Number(e.target.value) })} className="w-40 accent-[var(--accent)]" />
@@ -187,6 +196,24 @@ export function Settings() {
             />
           </div>
           <Toggle label="Smooth cursor animation" value={settings.smoothCursor} onChange={(v) => update({ smoothCursor: v })} />
+          <div className="border-t border-border/40 py-3">
+            <label className="mb-1 block text-[13px] font-medium text-ink">Import VS Code theme JSON</label>
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                const text = await file.text()
+                await useStore.getState().importThemeJson(text)
+              }}
+              className="w-full text-[12px] text-ink-muted"
+            />
+            {Object.keys(settings.customThemes || {}).length > 0 && (
+              <p className="mt-1 text-[11px] text-ink-muted">{Object.keys(settings.customThemes).length} custom theme(s) saved</p>
+            )}
+          </div>
         </Section>
 
         <Section title="Keyboard Toolbar" icon={MdKeyboard}>
@@ -235,8 +262,9 @@ export function Settings() {
               )}
             </div>
             <p className="mt-1.5 text-[11px] text-ink-muted">
-              Run code directly on your device for unlimited, free, offline execution.
-              When connected, the priority chain is: local JS → Termux → Judge0 → mock.
+              Termux is the backend: it runs Python with the whole project (imports work)
+              and serves HTML/CSS/JS as a live preview server. Copy the latest v2 bridge
+              script below if you still have the old one.
             </p>
             <div className="mt-2 flex gap-2">
               <button onClick={copyBridgeScript} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/15 px-3 py-2 text-[12px] font-medium text-accent active:opacity-80">
@@ -257,6 +285,16 @@ export function Settings() {
               className="w-full rounded-lg border border-ink/15 bg-input px-3 py-2.5 text-[14px] text-ink outline-none focus:border-accent"
             />
             <p className="mt-1 text-[11px] text-ink-muted">Without a key, JavaScript runs locally; other languages show sample output.</p>
+          </div>
+          <div className="py-2.5">
+            <label className="mb-1 block text-[12px] text-ink-muted">Termux bridge URL</label>
+            <input
+              value={settings.termuxBridgeUrl || 'http://127.0.0.1:8080'}
+              onChange={(e) => update({ termuxBridgeUrl: e.target.value })}
+              placeholder="http://127.0.0.1:8080"
+              className="w-full rounded-lg border border-ink/15 bg-input px-3 py-2.5 font-mono text-[13px] text-ink outline-none focus:border-accent"
+            />
+            <p className="mt-1 text-[11px] text-ink-muted">Only change this if your Termux bridge listens on another host or port.</p>
           </div>
           <div className="flex items-center justify-between py-2.5">
             <span className="text-[14px] text-ink">Time limit · {settings.timeLimit}s</span>
@@ -306,7 +344,10 @@ export function Settings() {
           <button onClick={() => setImportProjectOpen(true)} className="flex w-full items-center gap-2 border-t border-border/40 py-3 text-left text-[14px] text-accent">
             <AiOutlineCloudUpload /> Import a project (ZIP / folder / files)
           </button>
-          <button onClick={() => showToast('Execution history cleared', 'success')} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-red-400">
+          <button
+            onClick={() => { if (window.confirm('Clear all execution history?')) void clearHistory() }}
+            className="w-full border-t border-border/40 py-3 text-left text-[14px] text-red-400"
+          >
             Clear execution history
           </button>
           {activeProject && (
@@ -345,8 +386,17 @@ export function Settings() {
         </Section>
 
         <Section title="About" icon={AiOutlineInfoCircle}>
-          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.3.0 — a mobile-first code editor PWA.</p>
-          <p className="pb-2.5 text-[12px] text-ink-muted">Built with React, CodeMirror 6, Dexie, Zustand &amp; Tailwind.</p>
+          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.6.0 — open-source mobile IDE.</p>
+          <p className="text-[12px] text-ink-muted">MIT licensed. Built with React, CodeMirror 6, Dexie, Zustand &amp; Tailwind.</p>
+          <button onClick={() => { setOpen(false); useStore.getState().setShortcutsOpen(true) }} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-accent">
+            Keyboard shortcuts
+          </button>
+          <button onClick={() => { setOpen(false); useStore.getState().setWelcomeOpen(true) }} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-accent">
+            Show welcome tour
+          </button>
+          <a href="https://github.com/pabi277/CodeFlow" target="_blank" rel="noopener noreferrer" className="block w-full border-t border-border/40 py-3 text-[14px] text-accent">
+            Source on GitHub
+          </a>
         </Section>
       </div>
     </div>

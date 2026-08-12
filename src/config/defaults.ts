@@ -1,4 +1,6 @@
-import type { AppSettings } from '../types'
+import type { AppSettings, ThemePalette } from '../types'
+
+export type { ThemePalette }
 
 // Default settings applied on first launch
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -16,8 +18,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showLineNumbers: true,
   bracketMatching: true,
   showMinimap: false,
+  showBreadcrumbs: true,
+  showStatusBar: true,
   cursorStyle: 'line',
   smoothCursor: false,
+  formatOnSave: false,
+  formatOnPaste: true,
+  indentGuides: true,
+  rainbowBrackets: true,
+  stickyScroll: true,
+  autoDetectIndent: true,
+  customThemes: {},
+  termuxBridgeUrl: 'http://127.0.0.1:8080',
   judge0ApiKey: '',
   judge0BaseUrl: '',
   timeLimit: 5,
@@ -32,36 +44,13 @@ export const DEFAULT_TOOLBAR_KEYS: Record<string, string[]> = {
   c: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '*', '&', '->', '#', '"', "'", '=', '+', '-', '/', '\\', ',', '_'],
   cpp: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '*', '&', '->', '#', '"', "'", '=', '+', '-', '/', '\\', ',', '_'],
   java: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '@', '"', "'", '.', '=', '+', '-', '*', '/', ',', '_', '<', '>'],
-  javascript: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '=>', '`', '"', "'", '.', '=', '+', '-', '*', '/', ',', '_'],
-  typescript: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '=>', '`', '"', "'", '.', '=', '+', '-', '*', '/', ',', '_', '?'],
+  javascript: ['←', '→', 'Tab', 'Undo', 'Redo', 'Next', ';', '{', '}', '(', ')', '=>', '`', '"', "'", '.', '=', '+', '-', '*', '/', ',', '_'],
+  typescript: ['←', '→', 'Tab', 'Undo', 'Redo', 'Next', ';', '{', '}', '(', ')', '=>', '`', '"', "'", '.', '=', '+', '-', '*', '/', ',', '_', '?'],
   go: ['←', '→', 'Tab', 'Undo', 'Redo', ':', '=', ';', '{', '}', '(', ')', '"', '.', '<', '>', '*', '&', '_', ','],
   rust: ['←', '→', 'Tab', 'Undo', 'Redo', ';', '{', '}', '(', ')', '::', '&', '*', '"', "'", '.', ',', '_', '<', '>', '=>'],
-  html: ['←', '→', 'Tab', 'Undo', 'Redo', '<', '>', '/', '"', "'", '=', '&', ';', '(', ')', '{', '}'],
-  css: ['←', '→', 'Tab', 'Undo', 'Redo', '{', '}', ':', ';', '#', '.', ',', '(', ')', '"', "'"],
+  html: ['←', '→', 'Tab', 'Emmet', 'Undo', 'Redo', '<', '>', '/', '"', "'", '=', '&', ';', '(', ')', '{', '}'],
+  css: ['←', '→', 'Tab', 'Emmet', 'Undo', 'Redo', '{', '}', ':', ';', '#', '.', ',', '(', ')', '"', "'"],
   shell: ['←', '→', 'Tab', 'Undo', 'Redo', '$', '#', ';', '&', '|', '>', '<', '=', '/', '-', '*', "'", '"', '\\', '~', '!'],
-}
-
-export interface ThemePalette {
-  name: string
-  dark: boolean
-  /** app background */
-  bg: string
-  /** panel / drawer / terminal */
-  panel: string
-  /** primary text */
-  text: string
-  /** muted text */
-  muted: string
-  /** inputs / search bars */
-  input: string
-  /** interactive accent */
-  accent: string
-  /** faint borders */
-  border: string
-  /** editor selection */
-  selection: string
-  /** active line background */
-  activeLine: string
 }
 
 export const THEME_PRESETS: Record<string, ThemePalette> = {

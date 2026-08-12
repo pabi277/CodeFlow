@@ -31,13 +31,51 @@ const LANG_ICONS: Record<string, IconType> = {
   swift: SiSwift,
   kt: SiKotlin,
   md: AiOutlineFileMarkdown,
+  markdown: AiOutlineFileMarkdown,
   json: VscJson,
   sql: AiOutlineDatabase,
+  vue: VscCode,
+  svg: AiOutlineFile,
+  xml: VscCode,
+  yaml: VscCode,
+  yml: VscCode,
+  toml: VscCode,
+  ini: VscCode,
+  sh: VscCode,
+  bash: VscCode,
+  zsh: VscCode,
+  env: VscCode,
+  lock: VscJson,
+  txt: AiOutlineFile,
+  less: DiCss3,
 }
 
 // Generic file fallback
 const FILE_ICON: IconType = AiOutlineFile
 const CONFIG_ICON: IconType = VscCode
+
+const ICON_COLOR: Record<string, string> = {
+  js: 'text-yellow-400', jsx: 'text-yellow-400', mjs: 'text-yellow-400',
+  ts: 'text-sky-400', tsx: 'text-sky-400',
+  py: 'text-blue-400',
+  java: 'text-orange-400',
+  c: 'text-blue-300', h: 'text-blue-300',
+  cpp: 'text-blue-300', cc: 'text-blue-300', hpp: 'text-blue-300',
+  html: 'text-orange-500', htm: 'text-orange-500',
+  css: 'text-sky-500', scss: 'text-pink-400', less: 'text-indigo-400',
+  go: 'text-cyan-400',
+  rs: 'text-orange-300',
+  rb: 'text-red-400',
+  php: 'text-violet-400',
+  swift: 'text-orange-400',
+  kt: 'text-purple-400',
+  md: 'text-ink-muted',
+  json: 'text-amber-300',
+  sql: 'text-emerald-400',
+  vue: 'text-emerald-400',
+  yaml: 'text-rose-300', yml: 'text-rose-300',
+  sh: 'text-green-400', bash: 'text-green-400',
+}
 
 export interface FileIconResult {
   Icon: IconType
@@ -61,12 +99,12 @@ export function getFileIcon(
   const ext = getExtension(fileName)
   const langIcon = LANG_ICONS[ext]
   if (langIcon) {
-    return { Icon: langIcon, colorClass: '' }
+    return { Icon: langIcon, colorClass: ICON_COLOR[ext] || 'text-sky-400' }
   }
   if (/\.(yaml|yml|xml|toml|ini|conf|config)$/i.test(fileName)) {
-    return { Icon: CONFIG_ICON, colorClass: '' }
+    return { Icon: CONFIG_ICON, colorClass: 'text-slate-400' }
   }
-  return { Icon: FILE_ICON, colorClass: '' }
+  return { Icon: FILE_ICON, colorClass: 'text-ink-muted' }
 }
 
 export function FileIcon({ name, type, isOpen, size = 18, className = '' }: {

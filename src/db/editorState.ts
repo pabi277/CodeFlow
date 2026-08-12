@@ -6,6 +6,7 @@ const KEY = 'editor_state'
 export const EMPTY_EDITOR_STATE: EditorPersistState = {
   openTabIds: [],
   activeTabId: null,
+  pinnedTabIds: [],
   cursorPositions: {},
   scrollPositions: {},
   terminalOpen: false,

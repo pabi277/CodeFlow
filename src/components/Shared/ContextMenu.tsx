@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { BottomSheet } from './BottomSheet'
 import { NameModal } from './NameModal'
-import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle } from 'react-icons/fi'
+import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
 import { AiOutlineFile } from 'react-icons/ai'
 
 export function ContextMenu() {
@@ -22,6 +22,10 @@ export function ContextMenu() {
   // The node we are renaming persists even after the context menu closes,
   // so the rename sheet can stay open. We track its id separately.
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [movingId, setMovingId] = useState<string | null>(null)
+  const moveNode = useStore((s) => s.moveNode)
+  const revertToSaved = useStore((s) => s.revertToSaved)
+  const dirtyTabs = useStore((s) => s.dirtyTabs)
 
   const node = ctx ? nodeMap[ctx.nodeId] : undefined
   const renamingNode = renamingId ? nodeMap[renamingId] : undefined
@@ -86,6 +90,10 @@ export function ContextMenu() {
             )}
             {node.type === 'folder' && <Item icon={<FiFilePlus />} label="New File Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'file' })} />}
             {node.type === 'folder' && <Item icon={<FiFolderPlus />} label="New Folder Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'folder' })} />}
+            {node.path !== '/' && <Item icon={<FiMove />} label="Move to…" onPress={() => setMovingId(node.id)} />}
+            {node.type === 'file' && dirtyTabs[node.id] && (
+              <Item icon={<FiRotateCcw />} label="Revert to last save" onPress={() => { void revertToSaved(node.id) }} />
+            )}
             <Item icon={<FiEdit3 />} label="Rename" onPress={() => setRenamingId(node.id)} />
             <Item icon={<FiCopy />} label="Copy Path" onPress={copyPath} />
             {node.type === 'file' && <Item icon={<FiShare2 />} label="Share" onPress={share} />}
@@ -106,6 +114,34 @@ export function ContextMenu() {
           onSubmit={(v) => renameNode(renamingNode.id, v)}
         />
       )}
+
+      {movingId && (
+        <MoveSheet
+          nodeId={movingId}
+          onClose={() => setMovingId(null)}
+          onPick={(folderId) => { void moveNode(movingId, folderId); setMovingId(null) }}
+        />
+      )}
     </>
+  )
+}
+
+function MoveSheet({ nodeId, onClose, onPick }: { nodeId: string; onClose: () => void; onPick: (id: string) => void }) {
+  const nodeMap = useStore((s) => s.nodeMap)
+  const folders = Object.values(nodeMap).filter((n) => n.type === 'folder' && n.id !== nodeId)
+  return (
+    <BottomSheet open onClose={onClose} title="Move to folder">
+      <div className="max-h-[50vh] overflow-y-auto pb-2">
+        {folders.map((f) => (
+          <button
+            key={f.id}
+            onClick={() => onPick(f.id)}
+            className="flex w-full px-4 py-3 text-left text-[14px] text-ink active:bg-white/5"
+          >
+            {f.path === '/' ? '/ (project root)' : f.path}
+          </button>
+        ))}
+      </div>
+    </BottomSheet>
   )
 }

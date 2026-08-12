@@ -1,15 +1,16 @@
-import { THEME_PRESETS, type ThemePalette } from '../config/defaults'
+import { THEME_PRESETS } from '../config/defaults'
+import type { ThemePalette } from '../types'
 
-export function resolvePalette(preset: string): ThemePalette {
-  return THEME_PRESETS[preset] || THEME_PRESETS['default-dark']
+export function resolvePalette(preset: string, custom: Record<string, ThemePalette> = {}): ThemePalette {
+  return custom[preset] || THEME_PRESETS[preset] || THEME_PRESETS['default-dark']
 }
 
 /**
  * Apply a theme preset's palette as CSS custom properties on <html>.
  * Components consume these via Tailwind theme tokens (--color-*).
  */
-export function applyThemePreset(preset: string): ThemePalette {
-  const p = resolvePalette(preset)
+export function applyThemePreset(preset: string, custom: Record<string, ThemePalette> = {}): ThemePalette {
+  const p = resolvePalette(preset, custom)
   const root = document.documentElement
   const vars: Record<string, string> = {
     '--surface': p.bg,

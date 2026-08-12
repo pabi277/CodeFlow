@@ -2,6 +2,8 @@ import { CompletionContext, type Completion, type CompletionResult } from '@code
 import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS } from './keywords'
 import { TEMPLATE_COMPLETIONS_BY_LANG, symbolPairCompletion } from './keywordCompletions'
 import { extractLocalSymbols, localSymbolsToEntries } from './localSymbols'
+import { getProjectIndex } from './projectIndex'
+import { matchImportContext, suggestImportPaths } from '../../utils/importPaths'
 
 // Cache plain keyword completions per language
 const keywordCache = new Map<string, Completion[]>()
@@ -43,6 +45,20 @@ export function getCompletionSourceForLanguage(language: string) {
     if (pairOptions && pairOptions.length) {
       const before = context.matchBefore(/[({[\"'`]/)!
       return { from: before.from, options: pairOptions, validFor: /^$/ }
+    }
+
+    const line = context.state.doc.lineAt(context.pos)
+    const importHit = matchImportContext(line.text.slice(0, context.pos - line.from))
+    if (importHit) {
+      const { currentPath, files } = getProjectIndex()
+      const paths = suggestImportPaths(currentPath, importHit.prefix, files, importHit.style)
+      if (paths.length) {
+        return {
+          from: line.from + importHit.from,
+          options: paths.map((p) => ({ label: p, type: 'text', boost: 2, detail: 'file' })),
+          validFor: /^[\w./-]*$/,
+        }
+      }
     }
 
     const word = context.matchBefore(/\w+/)

@@ -20,6 +20,7 @@ export function FileExplorer() {
   const openFile = useStore((s) => s.openFile)
   const setNewItemModal = useStore((s) => s.setNewItemModal)
   const openContextMenu = useStore((s) => s.openContextMenu)
+  const moveNode = useStore((s) => s.moveNode)
   const [query, setQuery] = useState('')
 
   const rootIds = useMemo(() => {
@@ -94,6 +95,17 @@ export function FileExplorer() {
         <div
           className="mx-1 flex items-center gap-1 rounded py-1.5 pr-2 active:bg-accent/10"
           style={{ paddingLeft: depth * 18 + 6 }}
+          draggable
+          onDragStart={(e) => { e.dataTransfer.setData('text/node-id', nodeId); e.dataTransfer.effectAllowed = 'move' }}
+          onDragOver={(e) => {
+            if (isFolder) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const from = e.dataTransfer.getData('text/node-id')
+            if (from && isFolder && from !== nodeId) void moveNode(from, nodeId)
+          }}
           onContextMenu={(e) => { e.preventDefault(); openMenu(nodeId, e.clientX, e.clientY) }}
           onClick={() => (isFolder ? toggleFolder(nodeId) : openFile(nodeId))}
         >

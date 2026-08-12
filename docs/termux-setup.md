@@ -16,10 +16,16 @@ no cloud API, no rate limits, no network needed.
 ## How it works
 
 A browser (the PWA) cannot run commands in Termux directly. Instead, CodeFlow talks to a
-tiny HTTP bridge that you run inside Termux:
+tiny HTTP bridge that you run inside Termux. v2 also **syncs the open project** so:
+
+- HTML preview loads real CSS/JS/images from `http://127.0.0.1:8080/preview/…`
+- Python / Node can `import` other files in the project
 
 ```
-CodeFlow (browser)  ──HTTP (localhost:8080)──▶  termux-bridge.js (in Termux)  ──▶  python/node/gcc/java
+CodeFlow (browser)  ──HTTP (localhost:8080)──▶  termux-bridge.js
+        │                                         ├── POST /execute  → python/node/gcc/java (full project)
+        │                                         ├── POST /sync     → write workspace
+        └── iframe / new tab  ──GET /preview/*──▶ └── static file server
 ```
 
 The bridge only listens on `127.0.0.1` (localhost), so nothing on your network can reach it.
@@ -90,8 +96,12 @@ Go to **Settings → Execution → Termux Integration → Refresh**. The status 
 
 ## Using it
 
-- JavaScript / TypeScript **always** run in the browser locally (no bridge needed).
+- JavaScript / TypeScript run in the browser unless the project has sibling modules **and**
+  Termux is connected (then Node resolves `require` / `import`).
 - Other languages (Python, C, C++, Java, Bash, ...) run in **Termux when the bridge is running**.
+  The whole project is synced first, so `from util import greet` works.
+- HTML preview uses the Termux live server when the v2 bridge is running (Open in new tab
+  is optional). Without Termux, CSS/JS are bundled into the iframe.
 - If the bridge is not running, CodeFlow falls back to **Judge0** (if a key is configured) then to
   **mock output**.
 - After a run, the terminal shows a colored badge: **"Ran in Termux"** (green),

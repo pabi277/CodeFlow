@@ -4,9 +4,18 @@ import { applyThemePreset } from './utils/theme'
 import { Home } from './components/Home'
 import { TopBar } from './components/TopBar'
 import { TabBar } from './components/TabBar'
-import { Editor } from './components/Editor/Editor'
+import { EditorWorkspace } from './components/Editor/EditorWorkspace'
 import { KeyboardToolbar } from './components/KeyboardToolbar'
-import { TerminalHost } from './components/Terminal/Terminal'
+import { Breadcrumbs } from './components/Breadcrumbs'
+import { StatusBar } from './components/StatusBar'
+import { GoToLine } from './components/GoToLine'
+import { WelcomeTour, shouldShowWelcome } from './components/WelcomeTour'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
+import { SymbolSearch, RenameSymbol, ReferencesPanel } from './components/SymbolSearch'
+import { ConflictResolver } from './components/GitHub/ConflictResolver'
+import { Preview } from './components/Editor/Preview'
+import { isHtmlPreview } from './utils/markdown'
+import { useIDEShortcuts } from './hooks/useIDEShortcuts'
 import { Drawer } from './components/Drawer'
 import { CommandPalette } from './components/CommandPalette'
 import { FindInProject } from './components/FindInProject'
@@ -62,17 +71,28 @@ function InstallBanner() {
 }
 
 export default function App() {
+  useIDEShortcuts()
   const booted = useStore((s) => s.booted)
   const bootstrap = useStore((s) => s.bootstrap)
   const activeProjectId = useStore((s) => s.activeProjectId)
   const themePreset = useStore((s) => s.settings.themePreset)
   const landscapeSplit = useStore((s) => s.landscapeSplit)
   const importProjectOpen = useStore((s) => s.importProjectOpen)
+  const zenMode = useStore((s) => s.zenMode)
+  const viewerOpen = useStore((s) => s.viewerOpen)
+  const viewerFile = useStore((s) => {
+    const id = s.activeTabId
+    return id ? s.nodeMap[id] : undefined
+  })
 
   useEffect(() => {
     initBuiltinPlugins()
     bootstrap()
   }, [bootstrap])
+
+  useEffect(() => {
+    if (booted && shouldShowWelcome()) useStore.getState().setWelcomeOpen(true)
+  }, [booted])
 
   // Auto-enable the split editor in landscape (width > height)
   useEffect(() => {
@@ -98,16 +118,23 @@ export default function App() {
     <div className="bg-app flex h-dvh flex-col overflow-hidden text-ink">
       {activeProjectId ? (
         <>
-          <TopBar />
-          <TabBar />
-          <div className={`relative flex min-h-0 flex-1 ${landscapeSplit ? 'flex-row' : 'flex-col'}`}>
-            {landscapeSplit && !useStore.getState().drawerOpen && <FileListSidebar />}
-            <div className="relative min-h-0 min-w-0 flex-1">
-              <Editor />
-              <TerminalHost />
-            </div>
+          {!zenMode && <TopBar />}
+          {!zenMode && <TabBar />}
+          {!zenMode && <Breadcrumbs />}
+          <div className={`relative flex min-h-0 flex-1 ${landscapeSplit && !zenMode ? 'flex-row' : 'flex-col'}`}>
+            {landscapeSplit && !zenMode && !useStore.getState().drawerOpen && <FileListSidebar />}
+            <EditorWorkspace />
           </div>
-          <KeyboardToolbar />
+          {!zenMode && <StatusBar />}
+          {!zenMode && <KeyboardToolbar />}
+          {zenMode && (
+            <button
+              onClick={() => useStore.getState().toggleZen()}
+              className="fixed right-3 top-3 z-[30] rounded-full bg-surface/90 px-3 py-1.5 text-[12px] font-semibold text-ink shadow-lg dark:bg-panel/90"
+            >
+              Exit zen
+            </button>
+          )}
         </>
       ) : (
         <Home />
@@ -131,6 +158,21 @@ export default function App() {
       <GitLog />
       <PullRequests />
       <PluginHost />
+      <GoToLine />
+      <WelcomeTour />
+      <ShortcutsHelp />
+      <SymbolSearch />
+      <RenameSymbol />
+      <ReferencesPanel />
+      <ConflictResolver />
+      {viewerOpen && viewerFile && isHtmlPreview(viewerFile.path) && (
+        <Preview
+          content={viewerFile.content}
+          path={viewerFile.path}
+          variant="overlay"
+          onClose={() => useStore.getState().setViewerOpen(false)}
+        />
+      )}
       <Toasts />
       <OfflineBanner />
       <InstallBanner />

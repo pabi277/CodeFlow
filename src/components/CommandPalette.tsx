@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { openFind } from '../utils/editorApi'
+import { openFind, expandEmmet, selectNextMatch } from '../utils/editorApi'
+import { detectLanguage } from '../utils/language'
 import { collectPluginCommands } from '../plugins/registry'
 import { AiOutlineSearch, AiOutlineFile } from 'react-icons/ai'
 import { VscSymbolMethod } from 'react-icons/vsc'
@@ -52,12 +53,28 @@ export function CommandPalette() {
   const openHome = useStore((s) => s.openHome)
   const exportProjectZip = useStore((s) => s.exportProjectZip)
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
+  const cyclePreviewMode = useStore((s) => s.cyclePreviewMode)
+  const setPreviewMode = useStore((s) => s.setPreviewMode)
+  const formatActiveDocument = useStore((s) => s.formatActiveDocument)
+  const setGoToLineOpen = useStore((s) => s.setGoToLineOpen)
+  const openBottomPanel = useStore((s) => s.openBottomPanel)
+  const setViewerOpen = useStore((s) => s.setViewerOpen)
+  const openPreviewInNewTab = useStore((s) => s.openPreviewInNewTab)
+  const setShortcutsOpen = useStore((s) => s.setShortcutsOpen)
+  const setWelcomeOpen = useStore((s) => s.setWelcomeOpen)
+  const toggleZen = useStore((s) => s.toggleZen)
+  const setSymbolSearchOpen = useStore((s) => s.setSymbolSearchOpen)
+  const goToDefinition = useStore((s) => s.goToDefinition)
+  const findReferences = useStore((s) => s.findReferences)
+  const openRename = useStore((s) => s.openRename)
   const [query, setQuery] = useState('')
+  const [sel, setSel] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
       setQuery('')
+      setSel(0)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
@@ -71,6 +88,8 @@ export function CommandPalette() {
     { label: 'New Folder', run: () => { setNewItemModal({ parentId: null, type: 'folder' }); setOpen(false) } },
     { label: 'Run Code', run: () => { runCurrentFile(); setOpen(false) } },
     { label: 'Open Settings', run: () => { setSettingsOpen(true); setOpen(false) } },
+    { label: 'Keyboard Shortcuts', run: () => { setShortcutsOpen(true); setOpen(false) } },
+    { label: 'Show Welcome Tour', run: () => { setWelcomeOpen(true); setOpen(false) } },
     { label: 'Toggle Theme', run: () => updateSettings({ themePreset: settings.themePreset === 'github-light' ? 'default-dark' : 'github-light' }) },
     { label: 'Toggle Terminal', run: () => setTerminalOpen(!useStore.getState().terminalOpen) },
     { label: 'Clear Terminal', run: () => clearTerminal() },
@@ -80,6 +99,27 @@ export function CommandPalette() {
     { label: 'Decrease Font Size', run: () => updateSettings({ fontSize: Math.max(10, settings.fontSize - 1) }) },
     { label: 'Toggle Line Numbers', run: () => updateSettings({ showLineNumbers: !settings.showLineNumbers }) },
     { label: 'Toggle Word Wrap', run: () => updateSettings({ wordWrap: !settings.wordWrap }) },
+    { label: 'Toggle Minimap', run: () => updateSettings({ showMinimap: !settings.showMinimap }) },
+    { label: 'Toggle Breadcrumbs', run: () => updateSettings({ showBreadcrumbs: !settings.showBreadcrumbs }) },
+    { label: 'Toggle Status Bar', run: () => updateSettings({ showStatusBar: !settings.showStatusBar }) },
+    { label: 'Toggle Preview', run: () => { cyclePreviewMode(); setOpen(false) } },
+    { label: 'Open HTML Viewer', run: () => { setViewerOpen(true); setOpen(false) } },
+    { label: 'Open Preview in New Tab', run: () => { void openPreviewInNewTab(); setOpen(false) } },
+    { label: 'Preview: Editor Only', run: () => { setPreviewMode('editor'); setOpen(false) } },
+    { label: 'Preview: Split', run: () => { setPreviewMode('split'); setOpen(false) } },
+    { label: 'Preview: Preview Only', run: () => { setPreviewMode('preview'); setOpen(false) } },
+    { label: 'Toggle Zen Mode', run: () => { toggleZen(); setOpen(false) } },
+    { label: 'Go to Symbol in Workspace', run: () => { setSymbolSearchOpen(true); setOpen(false) } },
+    { label: 'Go to Definition', run: () => { void goToDefinition(); setOpen(false) } },
+    { label: 'Find All References', run: () => { void findReferences(); setOpen(false) } },
+    { label: 'Rename Symbol', run: () => { openRename(); setOpen(false) } },
+    { label: 'Go to Line', run: () => { setGoToLineOpen(true); setOpen(false) } },
+    { label: 'Format Document', run: () => { formatActiveDocument(); setOpen(false) } },
+    { label: 'Expand Emmet Abbreviation', run: () => { expandEmmet(detectLanguage(useStore.getState().nodeMap[useStore.getState().activeTabId || '']?.path || '')); setOpen(false) } },
+    { label: 'Add Next Occurrence', run: () => { selectNextMatch(); setOpen(false) } },
+    { label: 'Show Problems', run: () => { openBottomPanel('problems'); setOpen(false) } },
+    { label: 'Show Outline', run: () => { openBottomPanel('outline'); setOpen(false) } },
+    { label: 'Show Terminal', run: () => { openBottomPanel('terminal'); setOpen(false) } },
     { label: 'Find in File', run: () => { openFind(); setOpen(false) } },
     { label: 'Find in Project', run: () => { setFindInProject(true); setOpen(false) } },
     { label: 'Show Execution History', run: () => { setHistoryBrowser(true); setOpen(false) } },
@@ -96,7 +136,7 @@ export function CommandPalette() {
       : [
           { label: 'Git: Connect GitHub', run: () => { connectGitHub(); setOpen(false) } },
         ]),
-  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen])
+  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen, cyclePreviewMode, setPreviewMode, formatActiveDocument, setGoToLineOpen, openBottomPanel])
 
   const files: FileNode[] = useMemo(() => Object.values(nodeMap).filter((n) => n.type === 'file'), [nodeMap])
 
@@ -111,6 +151,13 @@ export function CommandPalette() {
 
   const results = [...cmdResults, ...fileResults].sort((a, b) => b.score - a.score).slice(0, 30)
 
+  useEffect(() => { setSel(0) }, [query])
+
+  const runResult = (r: (typeof results)[number]) => {
+    if (r.type === 'file') { openFile(r.id); setOpen(false) }
+    else r.run()
+  }
+
   if (!open) return null
 
   return (
@@ -123,17 +170,22 @@ export function CommandPalette() {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setSel((i) => Math.min(results.length - 1, i + 1)) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((i) => Math.max(0, i - 1)) }
+              else if (e.key === 'Enter') { e.preventDefault(); if (results[sel]) runResult(results[sel]) }
+            }}
             placeholder="Type a command or file name…"
             className="flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-muted/60"
           />
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {results.length ? (
-            results.map((r) => (
+            results.map((r, i) => (
               <button
                 key={`${r.type}-${r.label}`}
-                onClick={() => { if (r.type === 'file') { openFile(r.id); setOpen(false) } else r.run() }}
-                className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink active:bg-accent/10"
+                onClick={() => runResult(r)}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink ${i === sel ? 'bg-accent/15' : 'active:bg-accent/10'}`}
               >
                 <span className={r.type === 'file' ? 'text-ink-muted' : 'text-accent'}>
                   {r.type === 'file' ? <AiOutlineFile size={18} /> : <VscSymbolMethod size={18} />}

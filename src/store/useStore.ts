@@ -12,6 +12,11 @@ import type {
   GitHubCommit,
   GitHubPullRequest,
   Snippet,
+  Diagnostic,
+  PreviewMode,
+  BottomPanelTab,
+  GitConflict,
+  ThemePalette,
 } from '../types'
 import * as fsDb from '../db/files'
 import { db } from '../db/db'
@@ -20,18 +25,54 @@ import * as settingsDb from '../db/settings'
 import * as editorDb from '../db/editorState'
 import * as historyDb from '../db/executionHistory'
 import { uuid } from '../utils/id'
-import { detectLanguage, languageName } from '../utils/language'
+import { detectLanguage, languageName, canRunLocally } from '../utils/language'
 import * as gitService from '../services/gitService'
 import { executeCode, checkTermuxBridge, clearBridgeCache, type ExecutionSource } from '../services/executionService'
+import { collectProjectFiles, previewUrlFor, syncTermuxWorkspace, termuxSupportsPreview } from '../services/termuxPreview'
+import { buildHtmlPreview } from '../utils/htmlPreview'
+import { isHtmlPreview } from '../utils/markdown'
 import * as authService from '../services/authService'
 import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
 import { DEFAULT_SETTINGS } from '../config/defaults'
 import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { diagnoseProject } from '../services/diagnostics'
+import { formatDocument } from '../utils/formatDocument'
+import { replaceInText } from '../utils/projectSearch'
+import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorApi'
+import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
+import { parseThemeText } from '../utils/themeImport'
+import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
+import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
-export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' }
+export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }
+
+const TAB_SYNC_ID = uuid()
+const syncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('codeflow-sync') : null
+if (syncChannel) {
+  syncChannel.onmessage = (ev: MessageEvent) => {
+    const msg = ev.data as { source?: string; type?: string; projectId?: string } | null
+    if (!msg || msg.source === TAB_SYNC_ID) return
+    if (msg.type === 'files' && msg.projectId && msg.projectId === useStore.getState().activeProjectId) {
+      void useStore.getState().refreshProject()
+    }
+  }
+}
+
+function toastMs(type: Toast['type']): number {
+  if (type === 'error') return 6000
+  if (type === 'warning') return 5000
+  if (type === 'success') return 2500
+  return 3500
+}
+
+function requireOnline(): boolean {
+  if (!useStore.getState().offline) return true
+  useStore.getState().showToast('You are offline — GitHub sync is paused until you reconnect.', 'warning')
+  return false
+}
 
 interface StoreState {
   // bootstrap
@@ -46,7 +87,12 @@ interface StoreState {
   // tabs / editor
   openTabs: string[]
   activeTabId: string | null
+  pinnedTabs: string[]
   dirtyTabs: Record<string, boolean>
+  zenMode: boolean
+  cursorPositions: Record<string, { line: number; col: number }>
+  scrollPositions: Record<string, number>
+  lastSaved: Record<string, string>
 
   // settings
   settings: AppSettings
@@ -99,6 +145,22 @@ interface StoreState {
   homeAction: 'new' | null
   importProjectOpen: boolean
   focusEditorRequest: number
+  // phase 5
+  previewMode: PreviewMode
+  bottomPanelTab: BottomPanelTab
+  diagnostics: Diagnostic[]
+  cursorPos: { line: number; col: number }
+  goToLineOpen: boolean
+  pendingGoTo: { fileId: string; line: number; col: number } | null
+  viewerOpen: boolean
+  shortcutsOpen: boolean
+  welcomeOpen: boolean
+  gitConflicts: GitConflict[]
+  conflictFileId: string | null
+  symbolSearchOpen: boolean
+  renameOpen: boolean
+  referenceHits: { fileId: string; path: string; name: string; line: number; col: number }[]
+  referencesOpen: boolean
 
   // actions
   bootstrap: () => Promise<void>
@@ -142,6 +204,44 @@ interface StoreState {
   refreshTermuxStatus: () => Promise<void>
   openHome: (action?: 'new' | null) => void
   setImportProjectOpen: (v: boolean) => void
+  setPreviewMode: (m: PreviewMode) => void
+  cyclePreviewMode: () => void
+  setBottomPanelTab: (t: BottomPanelTab) => void
+  openBottomPanel: (t?: BottomPanelTab) => void
+  refreshDiagnostics: () => void
+  setCursorPos: (p: { line: number; col: number }) => void
+  setGoToLineOpen: (v: boolean) => void
+  goToLocation: (fileId: string, line: number, col?: number) => Promise<void>
+  clearPendingGoTo: () => void
+  revealInExplorer: (nodeId: string) => void
+  formatActiveDocument: () => void
+  replaceInProject: (query: string, replacement: string, opts?: { matchCase?: boolean; regex?: boolean; wholeWord?: boolean }) => Promise<number>
+  clearHistory: () => Promise<void>
+  setViewerOpen: (v: boolean) => void
+  setShortcutsOpen: (v: boolean) => void
+  setWelcomeOpen: (v: boolean) => void
+  toggleZen: () => void
+  pinTab: (id: string) => void
+  unpinTab: (id: string) => void
+  togglePinTab: (id: string) => void
+  closeOtherTabs: (id: string) => Promise<void>
+  closeTabsToTheRight: (id: string) => Promise<void>
+  closeSavedTabs: () => Promise<void>
+  reorderTabs: (fromId: string, toId: string) => void
+  doCreateBranch: (name: string) => Promise<void>
+  doDeleteBranch: (name: string) => Promise<void>
+  openConflict: (fileId: string) => void
+  closeConflict: () => void
+  resolveConflict: (fileId: string, choice: 'local' | 'remote' | 'both') => Promise<void>
+  goToDefinition: () => Promise<void>
+  findReferences: () => Promise<void>
+  openRename: () => void
+  closeRename: () => void
+  renameCurrentSymbol: (next: string) => Promise<number>
+  setSymbolSearchOpen: (v: boolean) => void
+  setReferencesOpen: (v: boolean) => void
+  importThemeJson: (text: string) => Promise<void>
+  openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
   importProjectFromZip: (file: File) => Promise<void>
@@ -171,6 +271,10 @@ interface StoreState {
   persistEditorState: () => Promise<void>
   saveActiveEditorCursor: (id: string, cursor: { line: number; col: number }) => void
   saveActiveEditorScroll: (id: string, top: number) => void
+  moveNode: (id: string, newParentId: string) => Promise<void>
+  revertToSaved: (id: string) => Promise<void>
+  cycleTab: (dir: 1 | -1) => void
+  convertActiveLineEnding: (to: LineEnding) => void
 
   // execution
   runCurrentFile: () => Promise<void>
@@ -213,7 +317,12 @@ export const useStore = create<StoreState>((set, get) => ({
   expanded: {},
   openTabs: [],
   activeTabId: null,
+  pinnedTabs: [],
   dirtyTabs: {},
+  zenMode: false,
+  cursorPositions: {},
+  scrollPositions: {},
+  lastSaved: {},
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
@@ -257,6 +366,21 @@ export const useStore = create<StoreState>((set, get) => ({
   homeAction: null,
   importProjectOpen: false,
   focusEditorRequest: 0,
+  previewMode: 'editor',
+  bottomPanelTab: 'terminal',
+  diagnostics: [],
+  cursorPos: { line: 1, col: 1 },
+  goToLineOpen: false,
+  pendingGoTo: null,
+  viewerOpen: false,
+  shortcutsOpen: false,
+  welcomeOpen: false,
+  gitConflicts: [],
+  conflictFileId: null,
+  symbolSearchOpen: false,
+  renameOpen: false,
+  referenceHits: [],
+  referencesOpen: false,
 
   bootstrap: async () => {
     const [projects, settings, editorState, auth] = await Promise.all([
@@ -280,23 +404,30 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().setActiveProject(active?.id ?? null)
     // restore tabs
     if (editorState.openTabIds.length) {
-      set({ openTabs: editorState.openTabIds, activeTabId: editorState.activeTabId, terminalOpen: editorState.terminalOpen, terminalHeight: editorState.terminalHeight || 40 })
+      set({
+        openTabs: editorState.openTabIds,
+        activeTabId: editorState.activeTabId,
+        pinnedTabs: editorState.pinnedTabIds || [],
+        terminalOpen: editorState.terminalOpen,
+        terminalHeight: editorState.terminalHeight || 40,
+      })
     }
     await get().loadHistory()
     await get().refreshGitStatus()
+    void get().refreshTermuxStatus()
   },
 
   showToast: (message, type = 'info') => {
     const id = uuid()
     set((s) => ({ toasts: [...s.toasts, { id, message, type }] }))
-    setTimeout(() => get().dismissToast(id), 3000)
+    setTimeout(() => get().dismissToast(id), toastMs(type))
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setOffline: (v) => set({ offline: v }),
 
   setActiveProject: async (id) => {
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: {} })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [] })
       return
     }
     await projectsDb.touchProject(id)
@@ -304,8 +435,11 @@ export const useStore = create<StoreState>((set, get) => ({
     const nodeMap: Record<string, FileNode> = {}
     for (const n of nodes) nodeMap[n.id] = n
     const rootId = getRootNodeId(nodeMap)
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [] })
+    const lastSaved: Record<string, string> = {}
+    for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
+    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved })
     await get().refreshGitStatus()
+    get().refreshDiagnostics()
   },
 
   newProject: async (name, seed = []) => {
@@ -336,6 +470,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const nodeMap: Record<string, FileNode> = {}
     for (const n of nodes) nodeMap[n.id] = n
     set({ nodeMap })
+    get().refreshDiagnostics()
   },
 
   toggleFolder: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),
@@ -345,7 +480,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!node || node.type !== 'file') return
     const dirty = get().dirtyTabs
     set((s) => ({
-      openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
+      openTabs: s.openTabs.includes(id) ? s.openTabs : insertTab(s.openTabs, s.pinnedTabs, id),
       activeTabId: id,
       dirtyTabs: { ...dirty, [id]: dirty[id] ?? false },
     }))
@@ -353,7 +488,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   closeTab: async (id) => {
-    const { openTabs, activeTabId } = get()
+    const { openTabs, activeTabId, pinnedTabs } = get()
     const nextTabs = openTabs.filter((t) => t !== id)
     let nextActive = activeTabId
     if (activeTabId === id) {
@@ -363,7 +498,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => {
       const dirtyTabs = { ...s.dirtyTabs }
       delete dirtyTabs[id]
-      return { openTabs: nextTabs, activeTabId: nextActive, dirtyTabs }
+      return { openTabs: nextTabs, activeTabId: nextActive, dirtyTabs, pinnedTabs: pinnedTabs.filter((t) => t !== id) }
     })
     await get().persistEditorState()
   },
@@ -424,6 +559,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (activeTabId && ids.includes(activeTabId)) activeTabId = openTabs[openTabs.length - 1] ?? null
     set({ nodeMap, dirtyTabs, openTabs, activeTabId })
     await get().persistEditorState()
+    get().refreshDiagnostics()
   },
 
   duplicateNode: async (id) => {
@@ -448,11 +584,20 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }),
   persistContent: async (id) => {
-    const node = get().nodeMap[id]
+    let node = get().nodeMap[id]
     if (!node || node.type !== 'file') return
     try {
+      if (get().settings.formatOnSave) {
+        const result = await formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
+        if (result.ok && result.text !== node.content) {
+          get().saveContent(id, result.text)
+          if (get().activeTabId === id) replaceDocument(result.text)
+          node = get().nodeMap[id] || node
+        }
+      }
       await fsDb.updateContent(id, node.content)
-      set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false } }))
+      set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false }, lastSaved: { ...s.lastSaved, [id]: node.content } }))
+      syncChannel?.postMessage({ source: TAB_SYNC_ID, type: 'files', projectId: get().activeProjectId })
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -462,16 +607,68 @@ export const useStore = create<StoreState>((set, get) => ({
     const state: EditorPersistState = {
       openTabIds: get().openTabs,
       activeTabId: get().activeTabId,
-      cursorPositions: {},
-      scrollPositions: {},
+      pinnedTabIds: get().pinnedTabs,
+      cursorPositions: get().cursorPositions,
+      scrollPositions: get().scrollPositions,
       terminalOpen: get().terminalOpen,
       terminalHeight: get().terminalHeight,
     }
     await editorDb.saveEditorState(state)
   },
 
-  saveActiveEditorCursor: (_id, _cursor) => {},
-  saveActiveEditorScroll: (_id, _top) => {},
+  saveActiveEditorCursor: (id, cursor) => {
+    set((s) => ({ cursorPositions: { ...s.cursorPositions, [id]: cursor } }))
+  },
+  saveActiveEditorScroll: (id, top) => {
+    set((s) => ({ scrollPositions: { ...s.scrollPositions, [id]: top } }))
+  },
+  moveNode: async (id, newParentId) => {
+    try {
+      await fsDb.moveNode(id, newParentId)
+      await get().refreshProject()
+      get().showToast('Moved', 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  revertToSaved: async (id) => {
+    const saved = get().lastSaved[id]
+    const node = get().nodeMap[id]
+    if (!node) return
+    if (saved == null) {
+      get().showToast('Nothing to revert — file has not been saved this session', 'info')
+      return
+    }
+    if (saved === node.content) {
+      get().showToast('Already matches last save', 'info')
+      return
+    }
+    get().saveContent(id, saved)
+    if (get().activeTabId === id) replaceDocument(saved)
+    await get().persistContent(id)
+    get().showToast('Reverted to last save', 'success')
+  },
+  cycleTab: (dir) => {
+    const { openTabs, activeTabId } = get()
+    if (openTabs.length < 2) return
+    const i = Math.max(0, openTabs.indexOf(activeTabId || ''))
+    const next = openTabs[(i + dir + openTabs.length) % openTabs.length]
+    set({ activeTabId: next })
+  },
+  convertActiveLineEnding: (to) => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!id || !node) return
+    const next = convertLineEnding(node.content, to)
+    if (next === node.content) {
+      get().showToast(`Already ${to.toUpperCase()}`, 'info')
+      return
+    }
+    replaceDocument(next)
+    get().saveContent(id, next)
+    void get().persistContent(id)
+    get().showToast(`Converted to ${to.toUpperCase()}`, 'success')
+  },
 
   runCurrentFile: async () => {
     const s = get()
@@ -485,22 +682,24 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Open a file to run it', 'info')
       return
     }
-    if (s.offline) {
+    const lang = detectLanguage(node.path)
+    if (s.offline && !canRunLocally(lang)) {
       get().showToast('Code execution requires internet connection. Your code is saved and will run when you are back online.', 'info')
       return
     }
-    const lang = detectLanguage(node.path)
     set({ running: true, runningFileId: node.id, terminalOpen: true })
     appendTerminal({ kind: 'system', text: `Running ${node.name} (${languageName(lang)})…` })
     const start = Date.now()
     try {
       const settings = get().settings
+      const files = collectProjectFiles(get().nodeMap)
+      files[node.path] = node.content
       const result = await executeCode(node.content, node.path, get().stdin, {
         apiKey: settings.judge0ApiKey,
         baseUrl: settings.judge0BaseUrl,
         timeLimit: settings.timeLimit,
         memoryLimit: settings.memoryLimit,
-      })
+      }, files)
       const source = result.source
       set({ lastRunSource: source })
 
@@ -551,6 +750,11 @@ export const useStore = create<StoreState>((set, get) => ({
   updateSettings: async (patch) => {
     const next = await settingsDb.updateSettings({ ...get().settings, ...patch })
     set({ settings: next })
+    if (patch.termuxBridgeUrl !== undefined) {
+      setBridgeOrigin(next.termuxBridgeUrl)
+      clearBridgeCache()
+      void get().refreshTermuxStatus()
+    }
   },
 
   // ---- GitHub actions ----
@@ -587,6 +791,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   cloneRepo: async (repo) => {
+    if (!requireOnline()) return
     set({ cloneProgress: { label: 'Starting…', done: 0, total: 0 } })
     try {
       const name = repo.name
@@ -603,6 +808,7 @@ export const useStore = create<StoreState>((set, get) => ({
   openCommit: () => { set({ commitOpen: true }); get().refreshGitStatus() },
   closeCommit: () => set({ commitOpen: false }),
   doCommit: async (message, includeIds, push) => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid || !message.trim()) return
     try {
@@ -639,6 +845,59 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast((err as Error).message, 'error')
     }
   },
+  doCreateBranch: async (name) => {
+    const pid = get().activeProjectId
+    if (!pid) return
+    try {
+      await gitService.createBranch(pid, name)
+      await get().loadBranches()
+      get().showToast(`Created branch ${name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  doDeleteBranch: async (name) => {
+    if (!requireOnline()) return
+    const pid = get().activeProjectId
+    if (!pid) return
+    try {
+      await gitService.deleteBranch(pid, name)
+      await get().loadBranches()
+      get().showToast(`Deleted ${name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  openConflict: (fileId) => set({ conflictFileId: fileId }),
+  closeConflict: () => set({ conflictFileId: null }),
+  resolveConflict: async (fileId, choice) => {
+    const conflict = get().gitConflicts.find((c) => c.fileId === fileId)
+    const node = get().nodeMap[fileId]
+    if (!conflict || !node) return
+    let next = node.content
+    if (choice === 'remote') next = conflict.remote
+    else if (choice === 'local') next = conflict.local
+    else {
+      next = `<<<<<<< Local\n${conflict.local.replace(/\n$/, '')}\n=======\n${conflict.remote.replace(/\n$/, '')}\n>>>>>>> Remote\n`
+    }
+    get().saveContent(fileId, next)
+    if (choice === 'remote') {
+      try {
+        await fsDb.syncGitFile(fileId, next, conflict.remoteSha)
+      } catch {
+        await get().persistContent(fileId)
+      }
+    } else {
+      await get().persistContent(fileId)
+    }
+    await get().refreshProject()
+    set((s) => ({
+      gitConflicts: s.gitConflicts.filter((c) => c.fileId !== fileId),
+      conflictFileId: s.conflictFileId === fileId ? null : s.conflictFileId,
+    }))
+    get().showToast(choice === 'both' ? 'Kept both with conflict markers' : `Kept ${choice} version`, 'success')
+    await get().refreshGitStatus()
+  },
   openDiff: (fileId) => set({ diffFileId: fileId }),
   closeDiff: () => set({ diffFileId: null }),
   discardFileChanges: async (fileId) => {
@@ -649,6 +908,7 @@ export const useStore = create<StoreState>((set, get) => ({
     get().showToast('Changes discarded', 'success')
   },
   doPull: async () => {
+    if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
     set({ pulling: true })
@@ -659,7 +919,11 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().refreshGitStatus()
       let msg = `Pull complete. ${result.updated} updated, ${result.created} created.`
       if (result.conflicts.length) msg += ` ${result.conflicts.length} conflict(s).`
+      set({ gitConflicts: result.conflictDetails || [] })
       get().showToast(msg, result.conflicts.length ? 'error' : 'success')
+      if (result.conflictDetails?.length) {
+        set({ conflictFileId: result.conflictDetails[0].fileId, drawerOpen: true, drawerTab: 'git' })
+      }
       if (result.deletedRemote.length) {
         get().showToast(`WARNING: ${result.deletedRemote.length} file(s) deleted remotely were kept locally.`, 'info')
       }
@@ -747,6 +1011,240 @@ export const useStore = create<StoreState>((set, get) => ({
     void get().setActiveProject(null)
   },
   setImportProjectOpen: (v) => set({ importProjectOpen: v }),
+
+  // ---- Phase 5 actions ----
+  setViewerOpen: (v) => set({ viewerOpen: v }),
+  setShortcutsOpen: (v) => set({ shortcutsOpen: v }),
+  setWelcomeOpen: (v) => set({ welcomeOpen: v }),
+  toggleZen: () => set((s) => {
+    const zenMode = !s.zenMode
+    return {
+      zenMode,
+      drawerOpen: zenMode ? false : s.drawerOpen,
+      terminalOpen: zenMode ? false : s.terminalOpen,
+    }
+  }),
+  pinTab: (id) => set((s) => {
+    if (s.pinnedTabs.includes(id)) return {}
+    const pinnedTabs = [...s.pinnedTabs, id]
+    return { pinnedTabs, openTabs: orderTabs(s.openTabs, pinnedTabs) }
+  }),
+  unpinTab: (id) => set((s) => {
+    const pinnedTabs = s.pinnedTabs.filter((t) => t !== id)
+    return { pinnedTabs, openTabs: orderTabs(s.openTabs, pinnedTabs) }
+  }),
+  togglePinTab: (id) => {
+    if (get().pinnedTabs.includes(id)) get().unpinTab(id)
+    else get().pinTab(id)
+    void get().persistEditorState()
+  },
+  closeOtherTabs: async (id) => {
+    const keep = new Set([id, ...get().pinnedTabs])
+    for (const t of [...get().openTabs]) {
+      if (!keep.has(t)) await get().closeTab(t)
+    }
+  },
+  closeTabsToTheRight: async (id) => {
+    const idx = get().openTabs.indexOf(id)
+    if (idx < 0) return
+    const pinned = new Set(get().pinnedTabs)
+    for (const t of get().openTabs.slice(idx + 1)) {
+      if (!pinned.has(t)) await get().closeTab(t)
+    }
+  },
+  closeSavedTabs: async () => {
+    const pinned = new Set(get().pinnedTabs)
+    for (const t of [...get().openTabs]) {
+      if (!get().dirtyTabs[t] && !pinned.has(t)) await get().closeTab(t)
+    }
+  },
+  reorderTabs: (fromId, toId) => {
+    if (fromId === toId) return
+    set((s) => {
+      const tabs = [...s.openTabs]
+      const from = tabs.indexOf(fromId)
+      const to = tabs.indexOf(toId)
+      if (from < 0 || to < 0) return {}
+      tabs.splice(from, 1)
+      tabs.splice(to, 0, fromId)
+      return { openTabs: orderTabs(tabs, s.pinnedTabs) }
+    })
+    void get().persistEditorState()
+  },
+  goToDefinition: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node) return
+    const name = getWordAtCursor() || wordAt(node.content, get().cursorPos.line, get().cursorPos.col)
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file').map((n) => ({ id: n.id, path: n.path, content: n.content }))
+    const hits = findDefinitions(name, files, id || undefined)
+    if (!hits.length) {
+      get().showToast(`No definition for “${name}”`, 'info')
+      return
+    }
+    await get().goToLocation(hits[0].fileId, hits[0].line, hits[0].col)
+    if (hits.length > 1) {
+      set({ referenceHits: hits, referencesOpen: true })
+      get().showToast(`${hits.length} definitions — pick one`, 'info')
+    }
+  },
+  findReferences: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node) return
+    const name = getWordAtCursor() || wordAt(node.content, get().cursorPos.line, get().cursorPos.col)
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file').map((n) => ({ id: n.id, path: n.path, content: n.content }))
+    const hits = findRefs(name, files)
+    set({ referenceHits: hits, referencesOpen: true, symbolSearchOpen: false })
+    if (!hits.length) get().showToast(`No references to “${name}”`, 'info')
+  },
+  openRename: () => {
+    const name = getWordAtCursor()
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    set({ renameOpen: true })
+  },
+  closeRename: () => set({ renameOpen: false }),
+  renameCurrentSymbol: async (next) => {
+    const name = getWordAtCursor()
+    if (!name || !next.trim() || next.trim() === name) {
+      set({ renameOpen: false })
+      return 0
+    }
+    let total = 0
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file')
+    for (const n of files) {
+      const result = renameInText(n.content, name, next.trim())
+      if (!result.count) continue
+      total += result.count
+      get().saveContent(n.id, result.text)
+      if (get().activeTabId === n.id) replaceDocument(result.text)
+      await get().persistContent(n.id)
+    }
+    set({ renameOpen: false })
+    get().refreshDiagnostics()
+    get().showToast(total ? `Renamed ${total} occurrence${total === 1 ? '' : 's'}` : 'Nothing to rename', total ? 'success' : 'info')
+    return total
+  },
+  setSymbolSearchOpen: (v) => set({ symbolSearchOpen: v }),
+  setReferencesOpen: (v) => set({ referencesOpen: v }),
+  importThemeJson: async (text) => {
+    try {
+      const imported = parseThemeText(text)
+      const customThemes: Record<string, ThemePalette> = { ...get().settings.customThemes, [imported.key]: imported.palette }
+      await get().updateSettings({ customThemes, themePreset: imported.key })
+      get().showToast(`Imported theme “${imported.palette.name}”`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Could not import theme', 'error')
+    }
+  },
+  openPreviewInNewTab: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node || !isHtmlPreview(node.path)) {
+      get().showToast('Open an HTML file first', 'info')
+      return
+    }
+    const files = collectProjectFiles(get().nodeMap)
+    files[node.path] = node.content
+    if (await termuxSupportsPreview()) {
+      const ok = await syncTermuxWorkspace(files)
+      if (ok) {
+        window.open(previewUrlFor(node.path), '_blank', 'noopener')
+        return
+      }
+    }
+    const bundled = buildHtmlPreview(node.content, node.path, files)
+    const blob = new Blob([bundled.html], { type: 'text/html' })
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+  },
+  setPreviewMode: (m) => set({ previewMode: m }),
+  cyclePreviewMode: () => {
+    const order: PreviewMode[] = ['editor', 'split', 'preview']
+    const i = order.indexOf(get().previewMode)
+    set({ previewMode: order[(i + 1) % order.length] })
+  },
+  setBottomPanelTab: (t) => set({ bottomPanelTab: t }),
+  openBottomPanel: (t) => set({ terminalOpen: true, ...(t ? { bottomPanelTab: t } : {}) }),
+  refreshDiagnostics: () => set({ diagnostics: diagnoseProject(get().nodeMap) }),
+  setCursorPos: (p) => set({ cursorPos: p }),
+  setGoToLineOpen: (v) => set({ goToLineOpen: v }),
+  goToLocation: async (fileId, line, col = 1) => {
+    set({ pendingGoTo: { fileId, line, col } })
+    await get().openFile(fileId)
+    // If the file is already active the editor effect may have already run —
+    // apply immediately as well.
+    if (get().activeTabId === fileId) {
+      goToPosition(line, col)
+      set({ pendingGoTo: null })
+    }
+  },
+  clearPendingGoTo: () => set({ pendingGoTo: null }),
+  revealInExplorer: (nodeId) => {
+    const map = get().nodeMap
+    const expanded = { ...get().expanded }
+    let n = map[nodeId]
+    if (n?.type === 'folder') expanded[n.id] = true
+    while (n?.parentId) {
+      expanded[n.parentId] = true
+      n = map[n.parentId]
+    }
+    set({ expanded, drawerOpen: true, drawerTab: 'files' })
+  },
+  formatActiveDocument: () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!id || !node || node.type !== 'file') {
+      get().showToast('Open a file to format it', 'info')
+      return
+    }
+    void (async () => {
+      const result = await formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
+      if (!result.ok) {
+        get().showToast(result.error, 'error')
+        return
+      }
+      if (result.text === node.content) {
+        get().showToast('Already formatted', 'info')
+        return
+      }
+      replaceDocument(result.text)
+      get().saveContent(id, result.text)
+      void get().persistContent(id)
+      get().refreshDiagnostics()
+      get().showToast('Document formatted', 'success')
+    })()
+  },
+  replaceInProject: async (query, replacement, opts = {}) => {
+    if (!query) return 0
+    let total = 0
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file')
+    for (const n of files) {
+      const next = replaceInText(n.content, query, replacement, opts)
+      if (next.count === 0) continue
+      total += next.count
+      get().saveContent(n.id, next.text)
+      await get().persistContent(n.id)
+    }
+    get().refreshDiagnostics()
+    return total
+  },
+  clearHistory: async () => {
+    await historyDb.clearExecutionHistory()
+    set({ history: [] })
+    get().showToast('Execution history cleared', 'success')
+  },
+
   exportProjectZip: async () => {
     const pid = get().activeProjectId
     const proj = get().projects.find((p) => p.id === pid)
@@ -815,10 +1313,22 @@ async function createSeedPath(projectId: string, rootId: string, seed: SeedFile)
   await fsDb.createNode(projectId, parentId, file, 'file', seed.content)
 }
 
+function insertTab(openTabs: string[], pinnedTabs: string[], id: string): string[] {
+  if (openTabs.includes(id)) return openTabs
+  return orderTabs([...openTabs, id], pinnedTabs)
+}
+
+function orderTabs(openTabs: string[], pinnedTabs: string[]): string[] {
+  const pinned = pinnedTabs.filter((id) => openTabs.includes(id))
+  const rest = openTabs.filter((id) => !pinnedTabs.includes(id))
+  return [...pinned, ...rest]
+}
+
 function getRootNodeId(nodeMap: Record<string, FileNode>): string | null {
   const root = Object.values(nodeMap).find((n) => n.path === '/')
   return root ? root.id : null
 }
+
 async function findChildByName(projectId: string, parentId: string | null, name: string, type: 'file' | 'folder'): Promise<string | null> {
   const children = await fsDb.getChildren(parentId, projectId)
   const match = children.find((c) => c.type === type && c.name.toLowerCase() === name.toLowerCase())

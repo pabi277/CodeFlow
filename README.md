@@ -1,8 +1,24 @@
-# CodeFlow 💻
+# CodeFlow
 
-A **mobile-first Progressive Web App** that brings a VS Code–style IDE experience to Android phones. Entirely a web app — install it from the browser, no app store required.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-Built to make a developer feel like they have a real IDE in their pocket: a responsive editor, a touch-optimized keyboard toolbar, cloud code execution, offline editing, and (in Phase 2) GitHub integration.
+**A free, open-source, mobile-first code editor.** Install it from the browser — no app store.
+
+Write Python, JavaScript, HTML and more on your phone. Run code, preview the web, and push to GitHub. Works offline.
+
+- **Edit** — CodeMirror 6, tabs, file tree, find, snippets, themes
+- **Run** — JS in the browser; Python and more via Termux or Judge0
+- **Preview** — live HTML/CSS/JS, optional new tab, Termux live server
+- **Ship** — clone, commit, push, pull, diffs, branches
+
+New here? Open the app, tap **How does it work?**, then **New project (with sample files)**.
+
+Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Licensed under [MIT](./LICENSE).
+
+---
+
+Built to make a developer feel like they have a real IDE in their pocket: a responsive editor, a touch-optimized keyboard toolbar, cloud code execution, offline editing, and GitHub integration.
 
 ---
 
@@ -57,6 +73,47 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **Plugin architecture** — plugin registry + enable/disable toggles; built-ins: history, snippets, git log, PRs | ✅ |
 | **Command palette** — plugin commands surfaced automatically | ✅ |
 
+**Phase 5 — IDE chrome**
+
+| Area | Status |
+| --- | --- |
+| **Code minimap** — canvas overview of the file, click/drag to scroll (Settings toggle) | ✅ |
+| **Markdown / HTML preview** — dedicated viewer with refresh + optional new tab; Termux v2 serves the project as a live server so CSS/JS/images load for real | ✅ |
+| **Multi-file run** — Termux receives the whole project, so Python/Node imports resolve | ✅ |
+| **Breadcrumbs** — tap a folder to reveal it in the explorer | ✅ |
+| **Problems panel** — JSON, brackets, markdown fences, HTML/YAML checks with jump-to-line | ✅ |
+| **Outline** — functions/classes/variables for the active file | ✅ |
+| **Status bar** — line/col, language, indent, error/warning counts | ✅ |
+| **Go to Line** — command palette + Ctrl/Cmd+G | ✅ |
+| **Format Document** — Prettier for JS/TS/HTML/CSS/Markdown; JSON pretty-print | ✅ |
+| **Multi-cursor** — Ctrl/Cmd+D, Alt+click, toolbar Next | ✅ |
+| **Emmet** — Tab expands HTML/CSS abbreviations | ✅ |
+| **Find & replace in project** — regex, whole word, replace all | ✅ |
+| **Keyboard shortcuts** — palette, find, go-to-line, drawer, terminal, format | ✅ |
+
+**Phase 6 — VS Code-style editor**
+
+| Area | Status |
+| --- | --- |
+| **Column / box selection** — Shift+Alt+drag | ✅ |
+| **Indent guides + rainbow brackets + sticky scroll** | ✅ |
+| **Smart selection** — Ctrl/Cmd+I expands to the parent syntax node | ✅ |
+| **Smooth cursor** — setting now actually applied | ✅ |
+| **Linked HTML tag rename** — edit an opening tag, the closer follows | ✅ |
+| **Format on save / paste** + **auto-detect indent** | ✅ |
+| **Go to definition / references / rename** — F12, Shift+F12, F2 | ✅ |
+| **Import path completion** — `from './` lists project files | ✅ |
+| **Workspace symbol search** — Ctrl/Cmd+T | ✅ |
+| **Pinned tabs, tab context menu, drag-to-reorder, scroll buttons** | ✅ |
+| **Zen mode** — Ctrl+K Z | ✅ |
+| **Create / delete Git branches** + **conflict resolver** + **side-by-side diff** | ✅ |
+| **ANSI colors + clickable paths** in the terminal | ✅ |
+| **Import a VS Code theme JSON** | ✅ |
+| **Async JS sandbox** — top-level await + timers | ✅ |
+| **Move files**, persist cursor/scroll, LF/CRLF toggle | ✅ |
+| **Snippet tab-stops**, HTML auto-close tags, image preview | ✅ |
+| **Configurable Termux URL**, offline Git guards, `.editorconfig` | ✅ |
+
 ## 🧱 Architecture
 
 ```
@@ -97,12 +154,11 @@ src/
 ## 🚀 Getting started
 
 ```bash
-cd codeflow
 npm install
 npm run dev      # start the dev server (Vite)
 npm run build    # production build + PWA service worker
 npm run preview  # preview the production build
-npm run test:git # run the git integration test suite (clone/commit/pull)
+npm run test     # run the full test suite
 ```
 
 > 💡 Open the dev server on your Android phone (or use the live preview) and **Add to Home Screen** to install it as a PWA.
@@ -166,7 +222,12 @@ npm run test:execution   # execution priority chain (local/mock fallback)
 npm run test:zip         # project ZIP export/import round-trip
 npm run test:bridge      # Termux bridge real execution (python/C, stdin, health)
 npm run test:smoke       # mount all screens + App boot transition (React #310 guard)
-npm run test             # run all seven suites
+npm run test:diagnostics # problems engine (JSON, brackets, markdown, YAML)
+npm run test:markdown    # preview renderer + XSS URL guards
+npm run test:format      # JSON pretty-print + whitespace cleanup
+npm run test:html-preview # HTML preview inlines local CSS/JS/@import
+npm run test:ide         # indent, ANSI, symbols, imports, theme import
+npm run test             # run all suites
 ```
 
 
@@ -177,5 +238,13 @@ npm run test             # run all seven suites
 - All API calls use HTTPS; user code runs only in Judge0's sandbox.
 
 ---
+
+## Contributing
+
+Issues and PRs are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and the [code of conduct](./CODE_OF_CONDUCT.md). Security reports: [SECURITY.md](./SECURITY.md).
+
+## License
+
+[MIT](./LICENSE) © CodeFlow contributors.
 
 Made with React, CodeMirror 6, Dexie, Zustand, Tailwind CSS & Vite.

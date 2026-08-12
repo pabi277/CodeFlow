@@ -1,7 +1,7 @@
 import { useStore } from '../store/useStore'
 import { detectLanguage } from '../utils/language'
 import { DEFAULT_TOOLBAR_KEYS } from '../config/defaults'
-import { insertText, moveCursorLeft, moveCursorRight, undoAction, redoAction, indentAtCursor, triggerCompletion } from '../utils/editorApi'
+import { insertText, moveCursorLeft, moveCursorRight, undoAction, redoAction, indentAtCursor, triggerCompletion, selectNextMatch, expandEmmet } from '../utils/editorApi'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { VscSymbolMethod } from 'react-icons/vsc'
 
@@ -22,6 +22,8 @@ export function KeyboardToolbar() {
       case '←': return moveCursorLeft()
       case '→': return moveCursorRight()
       case 'Tab': return indentAtCursor()
+      case 'Emmet': return expandEmmet(lang)
+      case 'Next': return selectNextMatch()
       case 'Undo': return undoAction()
       case 'Redo': return redoAction()
       case '->': return insertText('->')
@@ -49,7 +51,7 @@ export function KeyboardToolbar() {
         <VscSymbolMethod size={18} />
       </button>
       {keys.map((k, i) => {
-        const special = ['←', '→', 'Tab', 'Undo', 'Redo'].includes(k)
+        const special = ['←', '→', 'Tab', 'Undo', 'Redo', 'Emmet', 'Next'].includes(k)
         return (
           <button
             key={`${k}-${i}`}

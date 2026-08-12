@@ -1,0 +1,34 @@
+/* Document formatter.
+ * Run with: npx tsx scripts/format.test.ts
+ */
+import { formatDocument } from '../src/utils/formatDocument'
+
+let pass = 0
+let fail = 0
+function ok(cond: boolean, msg: string) {
+  if (cond) { pass++; console.log(`  ✅ ${msg}`) }
+  else { fail++; console.error(`  ❌ ${msg}`) }
+}
+
+async function main() {
+  console.log('\n[json]')
+  const pretty = await formatDocument('{"a":1,"b":[2,3]}', 'json', 2)
+  ok(pretty.ok && pretty.text === '{\n  "a": 1,\n  "b": [\n    2,\n    3\n  ]\n}\n', 'pretty-prints JSON')
+  const bad = await formatDocument('{', 'json', 2)
+  ok(!bad.ok && bad.error.length > 0, 'invalid JSON returns an error')
+  ok((await formatDocument('   ', 'json', 2)).ok, 'whitespace-only JSON is left alone')
+
+  console.log('\n[prettier js]')
+  const js = await formatDocument('const x=1;function f(){return x}', 'javascript', 2)
+  ok(js.ok && js.text.includes('function f()') && js.text.includes('const x = 1'), `prettier formats JS (got ${JSON.stringify(js.ok ? js.text : js.error)})`)
+
+  console.log('\n[whitespace]')
+  const ws = await formatDocument('foo  \nbar\t\n\n\n', 'python', 2)
+  ok(ws.ok && ws.text === 'foo\nbar\n', `strips trailing space and extra newlines (got ${JSON.stringify(ws.ok ? ws.text : ws.error)})`)
+  const py = await formatDocument('x', 'python', 4)
+  ok(py.ok && py.text === 'x\n', 'ensures trailing newline')
+
+  console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
+  process.exit(fail ? 1 : 0)
+}
+main().catch((e) => { console.error(e); process.exit(1) })

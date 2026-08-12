@@ -11,11 +11,15 @@ import { render, cleanup } from '@testing-library/react'
 ;(global as any).React = React
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
 const g = global as any
-for (const k of ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'Element', 'SVGElement', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage', 'sessionStorage']) {
+for (const k of ['window', 'document', 'HTMLElement', 'Node', 'Element', 'SVGElement', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage', 'sessionStorage']) {
   g[k] = dom.window[k]
 }
 g.customElements = dom.window.customElements
-g.navigator = { ...dom.window.navigator, onLine: true }
+try {
+  g.navigator = { ...dom.window.navigator, onLine: true }
+} catch {
+  Object.defineProperty(g, 'navigator', { configurable: true, value: { ...dom.window.navigator, onLine: true } })
+}
 // CodeMirror needs a few things
 g.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} }
 g.visualViewport = { height: 600, addEventListener(){}, removeEventListener(){}, scroll: 0 }
@@ -42,6 +46,15 @@ import { PluginHost } from '../src/components/PluginHost'
 import { RepoBrowser } from '../src/components/GitHub/RepoBrowser'
 import { CommitModal } from '../src/components/GitHub/CommitModal'
 import { BranchPicker } from '../src/components/GitHub/BranchPicker'
+import { Breadcrumbs } from '../src/components/Breadcrumbs'
+import { StatusBar } from '../src/components/StatusBar'
+import { ProblemsPanel } from '../src/components/ProblemsPanel'
+import { OutlinePanel } from '../src/components/OutlinePanel'
+import { GoToLine } from '../src/components/GoToLine'
+import { ShortcutsHelp } from '../src/components/ShortcutsHelp'
+import { WelcomeTour } from '../src/components/WelcomeTour'
+import { SymbolSearch, RenameSymbol, ReferencesPanel } from '../src/components/SymbolSearch'
+import { ConflictResolver } from '../src/components/GitHub/ConflictResolver'
 
 let pass = 0
 let fail = 0
@@ -67,6 +80,17 @@ const COMPONENTS: [string, React.ComponentType][] = [
   ['RepoBrowser', RepoBrowser],
   ['CommitModal', CommitModal],
   ['BranchPicker', BranchPicker],
+  ['Breadcrumbs', Breadcrumbs],
+  ['StatusBar', StatusBar],
+  ['ProblemsPanel', ProblemsPanel],
+  ['OutlinePanel', OutlinePanel],
+  ['GoToLine', GoToLine],
+  ['ShortcutsHelp', ShortcutsHelp],
+  ['WelcomeTour', WelcomeTour],
+  ['SymbolSearch', SymbolSearch],
+  ['RenameSymbol', RenameSymbol],
+  ['ReferencesPanel', ReferencesPanel],
+  ['ConflictResolver', ConflictResolver],
 ]
 
 async function main() {
