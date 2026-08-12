@@ -166,22 +166,37 @@ npm run test     # run the full test suite
 ## 🔐 Setting up GitHub OAuth (Phase 2)
 
 The GitHub OAuth **client secret** must never ship in frontend code, so the app
-delegates the code→token exchange to a small backend proxy. A ready-to-deploy
-**Cloudflare Worker** lives in [`/worker`](./worker).
+delegates the code→token exchange to a small backend proxy. On Vercel this is
+the serverless function at [`/api/exchange`](./api/exchange.js); a Cloudflare
+Worker alternative lives in [`/worker`](./worker).
 
 1. Register a GitHub **OAuth App** (Settings → Developer settings → OAuth Apps).
    Set the callback URL to `https://your-app.example.com/auth/callback`.
-2. Deploy the worker and set its secrets:
-   ```bash
-   cd worker
-   wrangler deploy
-   wrangler secret put GITHUB_CLIENT_ID
-   wrangler secret put GITHUB_CLIENT_SECRET
-   ```
-3. Configure the frontend in `src/services/authService.ts`:
-   - `clientId` → your OAuth App's Client ID
-   - `tokenProxyUrl` → your deployed worker's `/exchange` URL
+2. On Vercel, set these environment variables (Dashboard → Settings →
+   Environment Variables):
+   - `VITE_GITHUB_CLIENT_ID` → your OAuth App's Client ID (frontend build)
+   - `GITHUB_CLIENT_ID` → your OAuth App's Client ID (serverless function)
+   - `GITHUB_CLIENT_SECRET` → your OAuth App's Client secret (serverless
+     function only — never expose it in the frontend)
+3. `vercel.json` already rewrites `/api/*` to the serverless functions and
+   `/auth/callback` to the SPA, so no extra routing config is needed.
 4. Rebuild. Users can now tap **Connect GitHub** in the Git tab.
+
+### Testing OAuth locally (no merge / no deploy needed)
+
+GitHub allows **loopback redirect URIs** without registering them, so you can
+run the full real flow against your existing OAuth App:
+
+1. Copy `.env.example` → `.env.local` and fill in:
+   `VITE_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+   (get the secret from Vercel Dashboard → Settings → Environment Variables).
+   `.env.local` is gitignored — never commit the secret.
+2. `npm run dev` — the dev server serves `POST /api/exchange` locally via
+   `vite.config.ts` (same handler as the Vercel function).
+3. Open `http://localhost:5173` → Git tab → **Connect GitHub** → authorize.
+   GitHub redirects to `http://localhost:5173/auth/callback?code=...`
+   (loopback URLs are always accepted). Success shows a "Connected to GitHub"
+   toast; failures show an error toast with the server's message.
 
 ## 🖥️ Termux Integration
 

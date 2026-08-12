@@ -383,19 +383,26 @@ export const useStore = create<StoreState>((set, get) => ({
   referencesOpen: false,
 
   bootstrap: async () => {
-    const [projects, settings, editorState, auth] = await Promise.all([
+    const [projects, settings, editorState, storedAuth] = await Promise.all([
       projectsDb.listProjects(),
       settingsDb.loadSettings(),
       editorDb.loadEditorState(),
       authService.loadStoredAuth(),
     ])
-    // handle OAuth redirect if present
-    if (typeof window !== 'undefined' && window.location.pathname === '/auth/callback') {
+    let auth = storedAuth
+    // handle OAuth redirect if present (pathname check, or query-string fallback)
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.pathname === '/auth/callback' || window.location.search.includes('code='))
+    ) {
       try {
         const cbAuth = await authService.handleOAuthCallback()
-        if (cbAuth) set({ auth: cbAuth })
+        if (cbAuth) {
+          auth = cbAuth
+          get().showToast('Connected to GitHub', 'success')
+        }
       } catch (err) {
-        // swallow; toast on next render
+        get().showToast(authService.oauthErrorMessage(err), 'error')
       }
     }
     // restore a project
@@ -760,14 +767,21 @@ export const useStore = create<StoreState>((set, get) => ({
   // ---- GitHub actions ----
   connectGitHub: () => {
     try { navigator.vibrate?.(10) } catch {}
-    authService.beginOAuth()
+    try {
+      authService.beginOAuth()
+    } catch (err) {
+      get().showToast(authService.oauthErrorMessage(err), 'error')
+    }
   },
   handleCallback: async () => {
     try {
       const auth = await authService.handleOAuthCallback()
-      if (auth) set({ auth })
+      if (auth) {
+        set({ auth })
+        get().showToast('Connected to GitHub', 'success')
+      }
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(authService.oauthErrorMessage(err), 'error')
     }
   },
   disconnectGitHub: async () => {

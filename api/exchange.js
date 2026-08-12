@@ -4,12 +4,15 @@
  * Exchanges the temporary authorization `code` for an access token.
  * The client secret lives ONLY here as an environment variable.
  *
+ * NOTE: Vercel's default Node.js runtime loads `api/*.js` handlers via
+ * CommonJS, so this file uses `module.exports` — not `export default`.
+ *
  * Set these in Vercel Dashboard → Settings → Environment Variables:
  *   GITHUB_CLIENT_ID
  *   GITHUB_CLIENT_SECRET
  */
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -40,7 +43,7 @@ export default async function handler(req, res) {
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -64,4 +67,4 @@ export default async function handler(req, res) {
     console.error('Token exchange error:', err);
     return res.status(500).json({ error: 'Token exchange failed' });
   }
-}
+};
