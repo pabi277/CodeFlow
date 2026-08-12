@@ -57,6 +57,20 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **Plugin architecture** — plugin registry + enable/disable toggles; built-ins: history, snippets, git log, PRs | ✅ |
 | **Command palette** — plugin commands surfaced automatically | ✅ |
 
+**Phase 5 — IDE chrome**
+
+| Area | Status |
+| --- | --- |
+| **Code minimap** — canvas overview of the file, click/drag to scroll (Settings toggle) | ✅ |
+| **Markdown / HTML preview** — live preview, split, or preview-only for `.md` / `.html` / `.svg` | ✅ |
+| **Breadcrumbs** — tap a folder to reveal it in the explorer | ✅ |
+| **Problems panel** — JSON, brackets, markdown fences, HTML/YAML checks with jump-to-line | ✅ |
+| **Outline** — functions/classes/variables for the active file | ✅ |
+| **Status bar** — line/col, language, indent, error/warning counts | ✅ |
+| **Go to Line** — command palette + Ctrl/Cmd+G | ✅ |
+| **Format Document** — JSON pretty-print + trailing-whitespace cleanup | ✅ |
+| **Keyboard shortcuts** — palette, find, go-to-line, drawer, terminal, format | ✅ |
+
 ## 🧱 Architecture
 
 ```
@@ -97,12 +111,11 @@ src/
 ## 🚀 Getting started
 
 ```bash
-cd codeflow
 npm install
 npm run dev      # start the dev server (Vite)
 npm run build    # production build + PWA service worker
 npm run preview  # preview the production build
-npm run test:git # run the git integration test suite (clone/commit/pull)
+npm run test     # run the full test suite
 ```
 
 > 💡 Open the dev server on your Android phone (or use the live preview) and **Add to Home Screen** to install it as a PWA.

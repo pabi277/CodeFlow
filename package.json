@@ -13,10 +13,13 @@
     "test:phase4": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts",
     "test:completions": "tsx scripts/completions.test.ts",
     "test:execution": "tsx scripts/execution.test.ts",
-    "test": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts && tsx scripts/completions.test.ts && tsx scripts/execution.test.ts && tsx scripts/zip.test.ts && tsx scripts/bridge.integration.test.ts && tsx scripts/smoke.test.tsx",
+    "test": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts && tsx scripts/completions.test.ts && tsx scripts/execution.test.ts && tsx scripts/zip.test.ts && tsx scripts/bridge.integration.test.ts && tsx scripts/smoke.test.tsx && tsx scripts/diagnostics.test.ts && tsx scripts/markdown.test.ts && tsx scripts/format.test.ts",
     "test:zip": "tsx scripts/zip.test.ts",
     "test:smoke": "tsx scripts/smoke.test.tsx",
-    "test:bridge": "tsx scripts/bridge.integration.test.ts"
+    "test:bridge": "tsx scripts/bridge.integration.test.ts",
+    "test:diagnostics": "tsx scripts/diagnostics.test.ts",
+    "test:markdown": "tsx scripts/markdown.test.ts",
+    "test:format": "tsx scripts/format.test.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

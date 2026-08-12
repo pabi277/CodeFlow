@@ -30,6 +30,7 @@ export function Settings() {
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
   const deleteProject = useStore((s) => s.deleteProject)
   const openHome = useStore((s) => s.openHome)
+  const clearHistory = useStore((s) => s.clearHistory)
   const activeProject = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId))
 
   const copyBridgeScript = async () => {
@@ -154,6 +155,8 @@ export function Settings() {
           <Toggle label="Line numbers" value={settings.showLineNumbers} onChange={(v) => update({ showLineNumbers: v })} />
           <Toggle label="Bracket matching" value={settings.bracketMatching} onChange={(v) => update({ bracketMatching: v })} />
           <Toggle label="Code minimap" value={settings.showMinimap} onChange={(v) => update({ showMinimap: v })} />
+          <Toggle label="Breadcrumbs" value={settings.showBreadcrumbs} onChange={(v) => update({ showBreadcrumbs: v })} />
+          <Toggle label="Status bar" value={settings.showStatusBar} onChange={(v) => update({ showStatusBar: v })} />
         </Section>
 
         <Section title="Auto Save" icon={VscSave}>
@@ -306,7 +309,10 @@ export function Settings() {
           <button onClick={() => setImportProjectOpen(true)} className="flex w-full items-center gap-2 border-t border-border/40 py-3 text-left text-[14px] text-accent">
             <AiOutlineCloudUpload /> Import a project (ZIP / folder / files)
           </button>
-          <button onClick={() => showToast('Execution history cleared', 'success')} className="w-full border-t border-border/40 py-3 text-left text-[14px] text-red-400">
+          <button
+            onClick={() => { if (window.confirm('Clear all execution history?')) void clearHistory() }}
+            className="w-full border-t border-border/40 py-3 text-left text-[14px] text-red-400"
+          >
             Clear execution history
           </button>
           {activeProject && (
@@ -345,7 +351,7 @@ export function Settings() {
         </Section>
 
         <Section title="About" icon={AiOutlineInfoCircle}>
-          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.3.0 — a mobile-first code editor PWA.</p>
+          <p className="py-2.5 text-[14px] text-ink">CodeFlow v0.4.0 — a mobile-first code editor PWA.</p>
           <p className="pb-2.5 text-[12px] text-ink-muted">Built with React, CodeMirror 6, Dexie, Zustand &amp; Tailwind.</p>
         </Section>
       </div>

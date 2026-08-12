@@ -4,9 +4,12 @@ import { applyThemePreset } from './utils/theme'
 import { Home } from './components/Home'
 import { TopBar } from './components/TopBar'
 import { TabBar } from './components/TabBar'
-import { Editor } from './components/Editor/Editor'
+import { EditorWorkspace } from './components/Editor/EditorWorkspace'
 import { KeyboardToolbar } from './components/KeyboardToolbar'
-import { TerminalHost } from './components/Terminal/Terminal'
+import { Breadcrumbs } from './components/Breadcrumbs'
+import { StatusBar } from './components/StatusBar'
+import { GoToLine } from './components/GoToLine'
+import { useIDEShortcuts } from './hooks/useIDEShortcuts'
 import { Drawer } from './components/Drawer'
 import { CommandPalette } from './components/CommandPalette'
 import { FindInProject } from './components/FindInProject'
@@ -62,6 +65,7 @@ function InstallBanner() {
 }
 
 export default function App() {
+  useIDEShortcuts()
   const booted = useStore((s) => s.booted)
   const bootstrap = useStore((s) => s.bootstrap)
   const activeProjectId = useStore((s) => s.activeProjectId)
@@ -100,13 +104,12 @@ export default function App() {
         <>
           <TopBar />
           <TabBar />
+          <Breadcrumbs />
           <div className={`relative flex min-h-0 flex-1 ${landscapeSplit ? 'flex-row' : 'flex-col'}`}>
             {landscapeSplit && !useStore.getState().drawerOpen && <FileListSidebar />}
-            <div className="relative min-h-0 min-w-0 flex-1">
-              <Editor />
-              <TerminalHost />
-            </div>
+            <EditorWorkspace />
           </div>
+          <StatusBar />
           <KeyboardToolbar />
         </>
       ) : (
@@ -131,6 +134,7 @@ export default function App() {
       <GitLog />
       <PullRequests />
       <PluginHost />
+      <GoToLine />
       <Toasts />
       <OfflineBanner />
       <InstallBanner />

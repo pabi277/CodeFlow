@@ -12,6 +12,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
+import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
 import { useStore } from '../../store/useStore'
 import { detectLanguage } from '../../utils/language'
@@ -19,9 +20,10 @@ import { loadLanguageExtension } from '../../editor/editorLanguages'
 import { editorExtensionsForPalette } from '../../editor/themes'
 import { resolvePalette } from '../../utils/theme'
 import { FONT_FAMILIES } from '../../config/defaults'
-import { registerEditor } from '../../utils/editorApi'
+import { registerEditor, goToPosition } from '../../utils/editorApi'
 import { debounce } from '../../utils/debounce'
 import { VscCode } from 'react-icons/vsc'
+import { Minimap } from './Minimap'
 
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -35,6 +37,7 @@ export function Editor() {
   const cursorShapeComp = useRef(new Compartment())
   const bracketComp = useRef(new Compartment())
   const completionComp = useRef(new Compartment())
+  const lintComp = useRef(new Compartment())
 
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
@@ -42,6 +45,7 @@ export function Editor() {
   const focusEditorRequest = useStore((s) => s.focusEditorRequest)
   const saveContent = useStore((s) => s.saveContent)
   const persistContent = useStore((s) => s.persistContent)
+  const diagnostics = useStore((s) => s.diagnostics)
   const persistRef = useRef(persistContent)
   persistRef.current = persistContent
   const debouncedSave = useRef<((id: string) => void) | null>(null)
@@ -53,14 +57,27 @@ export function Editor() {
 
     const saveTimer = debounce((id: string) => persistRef.current(id), settings.autoSaveDelay)
     debouncedSave.current = saveTimer
+    const diagTimer = debounce(() => useStore.getState().refreshDiagnostics(), 400)
 
     const updateListener = EditorView.updateListener.of((update) => {
+      const pos = update.state.selection.main.head
+      const line = update.state.doc.lineAt(pos)
+      const next = { line: line.number, col: pos - line.from + 1 }
+      const prev = useStore.getState().cursorPos
+      if (prev.line !== next.line || prev.col !== next.col) useStore.getState().setCursorPos(next)
       if (!update.docChanged) return
       const id = activeTabRef.current
       if (!id) return
       const text = update.state.doc.toString()
       saveContent(id, text)
       saveTimer(id)
+      diagTimer()
+    })
+
+    const lintSource = linter((view) => {
+      const id = useStore.getState().activeTabId
+      if (!id) return []
+      return storeDiagsToCm(view, useStore.getState().diagnostics.filter((d) => d.fileId === id))
     })
 
     const view = new EditorView({
@@ -96,6 +113,7 @@ export function Editor() {
           indentComp.current.of([]),
           cursorShapeComp.current.of([]),
           bracketComp.current.of([]),
+          lintComp.current.of([lintGutter(), lintSource]),
           updateListener,
         ],
       }),
@@ -134,14 +152,18 @@ export function Editor() {
     const node = activeTabId ? nodeMap[activeTabId] : undefined
     const content = node?.content || ''
     const current = view.state.doc.toString()
+    const pending = useStore.getState().pendingGoTo
+    const keepSelection = !!(pending && pending.fileId === activeTabId)
     if (current !== content) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
-        selection: EditorSelection.cursor(0),
-        scrollIntoView: true,
+        ...(keepSelection ? {} : { selection: EditorSelection.cursor(0), scrollIntoView: true }),
       })
     }
-    view.focus()
+    if (pending && pending.fileId === activeTabId) {
+      goToPosition(pending.line, pending.col)
+      useStore.getState().clearPendingGoTo()
+    }
   }, [activeTabId, nodeMap])
 
   // Reconfigure language + completion source when the active file changes
@@ -197,12 +219,19 @@ export function Editor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.themePreset, settings.showLineNumbers, settings.wordWrap, settings.fontSize, settings.fontFamily, settings.tabSize, settings.indentWithSpaces, settings.cursorStyle, settings.bracketMatching])
 
+  // Refresh gutter lints when diagnostics change
+  useEffect(() => {
+    const view = viewRef.current
+    if (view) forceLinting(view)
+  }, [diagnostics, activeTabId])
+
   const node = activeTabId ? nodeMap[activeTabId] : undefined
   const hasFile = !!node
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full overflow-hidden bg-transparent" />
+    <div className="relative flex h-full w-full">
+      <div ref={containerRef} className="h-full min-w-0 flex-1 overflow-hidden bg-transparent" />
+      {hasFile && settings.showMinimap && <Minimap />}
       {!hasFile && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
           <VscCode className="text-5xl text-ink-muted" />
@@ -212,4 +241,15 @@ export function Editor() {
       )}
     </div>
   )
+}
+
+function storeDiagsToCm(view: EditorView, diags: { line: number; col: number; severity: string; message: string }[]): CmDiagnostic[] {
+  return diags.map((d) => {
+    const lineNo = Math.min(Math.max(1, d.line), view.state.doc.lines)
+    const line = view.state.doc.line(lineNo)
+    const from = Math.min(line.from + Math.max(0, d.col - 1), line.to)
+    const to = Math.min(from + 1, line.to) || line.from
+    const severity: CmDiagnostic['severity'] = d.severity === 'warning' ? 'warning' : d.severity === 'info' ? 'info' : 'error'
+    return { from, to: Math.max(from, to), severity, message: d.message }
+  })
 }

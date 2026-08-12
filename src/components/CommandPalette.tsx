@@ -52,6 +52,11 @@ export function CommandPalette() {
   const openHome = useStore((s) => s.openHome)
   const exportProjectZip = useStore((s) => s.exportProjectZip)
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
+  const cyclePreviewMode = useStore((s) => s.cyclePreviewMode)
+  const setPreviewMode = useStore((s) => s.setPreviewMode)
+  const formatActiveDocument = useStore((s) => s.formatActiveDocument)
+  const setGoToLineOpen = useStore((s) => s.setGoToLineOpen)
+  const openBottomPanel = useStore((s) => s.openBottomPanel)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -80,6 +85,18 @@ export function CommandPalette() {
     { label: 'Decrease Font Size', run: () => updateSettings({ fontSize: Math.max(10, settings.fontSize - 1) }) },
     { label: 'Toggle Line Numbers', run: () => updateSettings({ showLineNumbers: !settings.showLineNumbers }) },
     { label: 'Toggle Word Wrap', run: () => updateSettings({ wordWrap: !settings.wordWrap }) },
+    { label: 'Toggle Minimap', run: () => updateSettings({ showMinimap: !settings.showMinimap }) },
+    { label: 'Toggle Breadcrumbs', run: () => updateSettings({ showBreadcrumbs: !settings.showBreadcrumbs }) },
+    { label: 'Toggle Status Bar', run: () => updateSettings({ showStatusBar: !settings.showStatusBar }) },
+    { label: 'Toggle Preview', run: () => { cyclePreviewMode(); setOpen(false) } },
+    { label: 'Preview: Editor Only', run: () => { setPreviewMode('editor'); setOpen(false) } },
+    { label: 'Preview: Split', run: () => { setPreviewMode('split'); setOpen(false) } },
+    { label: 'Preview: Preview Only', run: () => { setPreviewMode('preview'); setOpen(false) } },
+    { label: 'Go to Line', run: () => { setGoToLineOpen(true); setOpen(false) } },
+    { label: 'Format Document', run: () => { formatActiveDocument(); setOpen(false) } },
+    { label: 'Show Problems', run: () => { openBottomPanel('problems'); setOpen(false) } },
+    { label: 'Show Outline', run: () => { openBottomPanel('outline'); setOpen(false) } },
+    { label: 'Show Terminal', run: () => { openBottomPanel('terminal'); setOpen(false) } },
     { label: 'Find in File', run: () => { openFind(); setOpen(false) } },
     { label: 'Find in Project', run: () => { setFindInProject(true); setOpen(false) } },
     { label: 'Show Execution History', run: () => { setHistoryBrowser(true); setOpen(false) } },
@@ -96,7 +113,7 @@ export function CommandPalette() {
       : [
           { label: 'Git: Connect GitHub', run: () => { connectGitHub(); setOpen(false) } },
         ]),
-  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen])
+  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen, cyclePreviewMode, setPreviewMode, formatActiveDocument, setGoToLineOpen, openBottomPanel])
 
   const files: FileNode[] = useMemo(() => Object.values(nodeMap).filter((n) => n.type === 'file'), [nodeMap])
 

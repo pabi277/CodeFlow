@@ -16,6 +16,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showLineNumbers: true,
   bracketMatching: true,
   showMinimap: false,
+  showBreadcrumbs: true,
+  showStatusBar: true,
   cursorStyle: 'line',
   smoothCursor: false,
   judge0ApiKey: '',

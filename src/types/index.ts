@@ -60,6 +60,8 @@ export interface AppSettings {
   showLineNumbers: boolean
   bracketMatching: boolean
   showMinimap: boolean
+  showBreadcrumbs: boolean
+  showStatusBar: boolean
   cursorStyle: 'line' | 'block' | 'underline'
   smoothCursor: boolean
   judge0ApiKey: string
@@ -194,6 +196,21 @@ export interface CloneProgress {
   label: string
   done: number
   total: number
+}
+
+export type PreviewMode = 'editor' | 'split' | 'preview'
+export type BottomPanelTab = 'terminal' | 'problems' | 'outline'
+export type DiagnosticSeverity = 'error' | 'warning' | 'info'
+
+export interface Diagnostic {
+  id: string
+  fileId: string
+  path: string
+  line: number
+  col: number
+  severity: DiagnosticSeverity
+  message: string
+  source: string
 }
 
 // ---- Judge0 response types ----

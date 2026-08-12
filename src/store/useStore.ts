@@ -12,6 +12,9 @@ import type {
   GitHubCommit,
   GitHubPullRequest,
   Snippet,
+  Diagnostic,
+  PreviewMode,
+  BottomPanelTab,
 } from '../types'
 import * as fsDb from '../db/files'
 import { db } from '../db/db'
@@ -28,6 +31,9 @@ import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
 import { DEFAULT_SETTINGS } from '../config/defaults'
 import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { diagnoseProject } from '../services/diagnostics'
+import { formatDocument } from '../utils/formatDocument'
+import { goToPosition, replaceDocument } from '../utils/editorApi'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
@@ -99,6 +105,13 @@ interface StoreState {
   homeAction: 'new' | null
   importProjectOpen: boolean
   focusEditorRequest: number
+  // phase 5
+  previewMode: PreviewMode
+  bottomPanelTab: BottomPanelTab
+  diagnostics: Diagnostic[]
+  cursorPos: { line: number; col: number }
+  goToLineOpen: boolean
+  pendingGoTo: { fileId: string; line: number; col: number } | null
 
   // actions
   bootstrap: () => Promise<void>
@@ -142,6 +155,18 @@ interface StoreState {
   refreshTermuxStatus: () => Promise<void>
   openHome: (action?: 'new' | null) => void
   setImportProjectOpen: (v: boolean) => void
+  setPreviewMode: (m: PreviewMode) => void
+  cyclePreviewMode: () => void
+  setBottomPanelTab: (t: BottomPanelTab) => void
+  openBottomPanel: (t?: BottomPanelTab) => void
+  refreshDiagnostics: () => void
+  setCursorPos: (p: { line: number; col: number }) => void
+  setGoToLineOpen: (v: boolean) => void
+  goToLocation: (fileId: string, line: number, col?: number) => Promise<void>
+  clearPendingGoTo: () => void
+  revealInExplorer: (nodeId: string) => void
+  formatActiveDocument: () => void
+  clearHistory: () => Promise<void>
   exportProjectZip: () => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
   importProjectFromZip: (file: File) => Promise<void>
@@ -257,6 +282,12 @@ export const useStore = create<StoreState>((set, get) => ({
   homeAction: null,
   importProjectOpen: false,
   focusEditorRequest: 0,
+  previewMode: 'editor',
+  bottomPanelTab: 'terminal',
+  diagnostics: [],
+  cursorPos: { line: 1, col: 1 },
+  goToLineOpen: false,
+  pendingGoTo: null,
 
   bootstrap: async () => {
     const [projects, settings, editorState, auth] = await Promise.all([
@@ -296,7 +327,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setActiveProject: async (id) => {
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: {} })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: {}, diagnostics: [] })
       return
     }
     await projectsDb.touchProject(id)
@@ -306,6 +337,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const rootId = getRootNodeId(nodeMap)
     set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [] })
     await get().refreshGitStatus()
+    get().refreshDiagnostics()
   },
 
   newProject: async (name, seed = []) => {
@@ -336,6 +368,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const nodeMap: Record<string, FileNode> = {}
     for (const n of nodes) nodeMap[n.id] = n
     set({ nodeMap })
+    get().refreshDiagnostics()
   },
 
   toggleFolder: (id) => set((s) => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),
@@ -424,6 +457,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (activeTabId && ids.includes(activeTabId)) activeTabId = openTabs[openTabs.length - 1] ?? null
     set({ nodeMap, dirtyTabs, openTabs, activeTabId })
     await get().persistEditorState()
+    get().refreshDiagnostics()
   },
 
   duplicateNode: async (id) => {
@@ -747,6 +781,69 @@ export const useStore = create<StoreState>((set, get) => ({
     void get().setActiveProject(null)
   },
   setImportProjectOpen: (v) => set({ importProjectOpen: v }),
+
+  // ---- Phase 5 actions ----
+  setPreviewMode: (m) => set({ previewMode: m }),
+  cyclePreviewMode: () => {
+    const order: PreviewMode[] = ['editor', 'split', 'preview']
+    const i = order.indexOf(get().previewMode)
+    set({ previewMode: order[(i + 1) % order.length] })
+  },
+  setBottomPanelTab: (t) => set({ bottomPanelTab: t }),
+  openBottomPanel: (t) => set({ terminalOpen: true, ...(t ? { bottomPanelTab: t } : {}) }),
+  refreshDiagnostics: () => set({ diagnostics: diagnoseProject(get().nodeMap) }),
+  setCursorPos: (p) => set({ cursorPos: p }),
+  setGoToLineOpen: (v) => set({ goToLineOpen: v }),
+  goToLocation: async (fileId, line, col = 1) => {
+    set({ pendingGoTo: { fileId, line, col } })
+    await get().openFile(fileId)
+    // If the file is already active the editor effect may have already run —
+    // apply immediately as well.
+    if (get().activeTabId === fileId) {
+      goToPosition(line, col)
+      set({ pendingGoTo: null })
+    }
+  },
+  clearPendingGoTo: () => set({ pendingGoTo: null }),
+  revealInExplorer: (nodeId) => {
+    const map = get().nodeMap
+    const expanded = { ...get().expanded }
+    let n = map[nodeId]
+    if (n?.type === 'folder') expanded[n.id] = true
+    while (n?.parentId) {
+      expanded[n.parentId] = true
+      n = map[n.parentId]
+    }
+    set({ expanded, drawerOpen: true, drawerTab: 'files' })
+  },
+  formatActiveDocument: () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!id || !node || node.type !== 'file') {
+      get().showToast('Open a file to format it', 'info')
+      return
+    }
+    const result = formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
+    if (!result.ok) {
+      get().showToast(result.error, 'error')
+      return
+    }
+    if (result.text === node.content) {
+      get().showToast('Already formatted', 'info')
+      return
+    }
+    replaceDocument(result.text)
+    get().saveContent(id, result.text)
+    void get().persistContent(id)
+    get().refreshDiagnostics()
+    get().showToast('Document formatted', 'success')
+  },
+  clearHistory: async () => {
+    await historyDb.clearExecutionHistory()
+    set({ history: [] })
+    get().showToast('Execution history cleared', 'success')
+  },
+
   exportProjectZip: async () => {
     const pid = get().activeProjectId
     const proj = get().projects.find((p) => p.id === pid)
