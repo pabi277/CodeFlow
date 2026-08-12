@@ -12,12 +12,15 @@ import * as gh from './githubService'
 import type { GitHubAuth } from '../types'
 
 // OAuth App config (frontend-safe values only — never the client secret)
+// VITE_GITHUB_CLIENT_ID is set in Vercel Dashboard → Settings → Environment Variables.
+// The token proxy is a Vercel Serverless Function at /api/exchange.
+const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
 export const GITHUB_OAUTH = {
-  clientId: 'YOUR_GITHUB_OAUTH_CLIENT_ID', // set at build/deploy time
-  redirectUri: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
+  clientId: import.meta.env.VITE_GITHUB_CLIENT_ID || '',
+  redirectUri: `${origin}/auth/callback`,
   scopes: ['repo', 'user'],
-  // URL of your backend proxy that exchanges the code for a token
-  tokenProxyUrl: 'https://your-backend.example.com/exchange',
+  tokenProxyUrl: `${origin}/api/exchange`,
 }
 
 export async function loadStoredAuth(): Promise<GitHubAuth | null> {
