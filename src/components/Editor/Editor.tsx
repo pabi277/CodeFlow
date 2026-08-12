@@ -16,6 +16,7 @@ import { indentGuides } from '../../editor/indentGuides'
 import { rainbowBrackets } from '../../editor/rainbowBrackets'
 import { linkedEditing } from '../../editor/linkedEditing'
 import { formatOnPaste } from '../../editor/pasteIndent'
+import { cIndent } from '../../editor/cIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
@@ -57,6 +58,7 @@ export function Editor() {
   const rainbowComp = useRef(new Compartment())
   const linkedComp = useRef(new Compartment())
   const pasteComp = useRef(new Compartment())
+  const cIndentComp = useRef(new Compartment())
   const drawSelComp = useRef(new Compartment())
 
   const activeTabId = useStore((s) => s.activeTabId)
@@ -206,6 +208,7 @@ export function Editor() {
           rainbowComp.current.of([]),
           linkedComp.current.of([]),
           pasteComp.current.of([]),
+          cIndentComp.current.of([]),
           lintComp.current.of([lintGutter(), lintSource]),
           updateListener,
         ],
@@ -350,6 +353,7 @@ export function Editor() {
     const lang = activePath ? detectLanguage(activePath) : 'plain'
     view.dispatch({ effects: linkedComp.current.reconfigure(['html', 'xml', 'vue'].includes(lang) ? linkedEditing() : []) })
     view.dispatch({ effects: pasteComp.current.reconfigure(settings.formatOnPaste ? formatOnPaste() : []) })
+    view.dispatch({ effects: cIndentComp.current.reconfigure(['c', 'cpp'].includes(lang) ? cIndent() : []) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     settings.themePreset, settings.customThemes, settings.showLineNumbers, settings.wordWrap, settings.fontSize,
