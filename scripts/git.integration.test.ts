@@ -32,6 +32,10 @@ class FakeGitHub {
   commits: Record<string, string> = {}
   branchShas: Record<string, string> = {}
   emptyRepos = new Set<string>()
+  lastTreeBase: string | null | undefined
+  lastCommitParents: string[] | undefined
+  createRefCalls = 0
+  updateRefCalls = 0
 
   addRepo(owner: string, repo: string, files: Record<string, string>) {
     this.repos[`${owner}/${repo}`] = files
@@ -78,12 +82,14 @@ class FakeGitHub {
     tree: { sha: this.commits[sha] || 'base-tree' },
     message: 'x',
   })
-  createTree = async (_t: string, _o: string, _r: string, _base: string | null, entries: { path: string; sha: string | null }[]) => {
+  createTree = async (_t: string, _o: string, _r: string, base: string | null, entries: { path: string; sha: string | null }[]) => {
+    this.lastTreeBase = base
     const ts = sha(JSON.stringify(entries))
     this.trees[ts] = entries
     return ts
   }
-  createCommit = async (_t: string, _o: string, _r: string, message: string, treeSha: string) => {
+  createCommit = async (_t: string, _o: string, _r: string, message: string, treeSha: string, parents: string[]) => {
+    this.lastCommitParents = parents
     const cs = sha(message + treeSha)
     this.commits[cs] = treeSha
     return { sha: cs }
@@ -100,12 +106,18 @@ class FakeGitHub {
     this.emptyRepos.delete(`${owner}/${repo}`)
   }
   updateRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.updateRefCalls++
     this.applyRef(owner, repo, branch, commitSha)
   }
   createRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.createRefCalls++
     this.applyRef(owner, repo, branch, commitSha)
   }
   listBranches = async () => [{ name: 'main' }]
+  listCommits = async (_t: string, owner: string, repo: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
+    return []
+  }
 }
 
 let pass = 0
@@ -138,6 +150,7 @@ async function main() {
     updateRef: fake.updateRef,
     createRef: fake.createRef,
     listBranches: fake.listBranches,
+    listCommits: fake.listCommits,
   })
 
   console.log('\n[1] cloneRepository')
@@ -169,7 +182,6 @@ async function main() {
   ok(status.some((s) => s.path === '/main.py' && s.status === 'modified'), 'main.py appears as modified')
 
   console.log('\n[4] commitChanges (push)')
-  const modifiedNode = await fsDb.getNode(py!.id)!
   const sha = await gitService.commitChanges(project.id, { message: 'update main', includeIds: [py!.id], push: true })
   ok(typeof sha === 'string' && sha.length > 0, `commit returned sha ${sha.slice(0, 7)}`)
   // remote should now reflect the change
@@ -216,9 +228,14 @@ async function main() {
 
   console.log('\n[9] push the first commit to an empty repository (upload)')
   const firstFile = await fsDb.createNode(emptyProject.id, null, 'hello.txt', 'file', 'hello world\n')
+  const updatesBeforeFirstCommit = fake.updateRefCalls
   await gitService.commitChanges(emptyProject.id, { message: 'first commit', includeIds: [firstFile.id], push: true })
   ok(fake.repos['octocat/brandnew']['hello.txt'] === 'hello world\n', 'first file uploaded to empty repo')
-  ok(fake.branchShas['octocat/brandnew/main'] != null, 'branch ref created for first commit')
+  ok(fake.lastTreeBase === null, 'first tree has no base tree')
+  ok(fake.lastCommitParents?.length === 0, 'first commit has no parents')
+  ok(fake.createRefCalls === 1, 'branch ref created exactly once for first commit')
+  ok(fake.updateRefCalls === updatesBeforeFirstCommit, 'first commit does not try to update a missing ref')
+  ok(fake.branchShas['octocat/brandnew/main'] != null, 'branch ref points to the first commit')
   ok(!fake.emptyRepos.has('octocat/brandnew'), 'repo no longer treated as empty after first push')
   const committedFirst = await fsDb.getNode(firstFile.id)!
   ok(committedFirst.isNew === false, 'uploaded file no longer marked new')
@@ -232,6 +249,23 @@ async function main() {
   )
   const emptyPull = await gitService.pullChanges(emptyProject2.id)
   ok(emptyPull.updated === 0 && emptyPull.created === 0 && emptyPull.conflicts.length === 0, 'pull on empty repo returns no changes')
+  const emptyLog = await gitService.getCommitLog(emptyProject2.id)
+  ok(emptyLog.length === 0, 'commit log on empty repo returns no commits')
+
+  console.log('\n[11] commit-only is rejected without losing local changes')
+  const localOnlyFile = await fsDb.createNode(emptyProject2.id, null, 'keep-local.txt', 'file', 'keep me\n')
+  const blobsBeforeCommitOnly = Object.keys(fake.blobs).length
+  let commitOnlyError = ''
+  try {
+    await gitService.commitChanges(emptyProject2.id, { message: 'local only', includeIds: [localOnlyFile.id], push: false })
+  } catch (err) {
+    commitOnlyError = (err as Error).message
+  }
+  ok(commitOnlyError.includes('Commit Only is not supported'), 'commit-only reports why it is unavailable')
+  ok(Object.keys(fake.blobs).length === blobsBeforeCommitOnly, 'commit-only performs no remote API writes')
+  ok(fake.emptyRepos.has('octocat/empty2'), 'commit-only does not create a remote branch')
+  const preservedLocalFile = await fsDb.getNode(localOnlyFile.id)
+  ok(preservedLocalFile?.isNew === true, 'commit-only keeps the local file marked as new')
 
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)

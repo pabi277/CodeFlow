@@ -931,7 +931,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().refreshProject()
       await get().refreshGitStatus()
       set({ commitOpen: false })
-      get().showToast(`Committed ${sha.slice(0, 7)}`, 'success')
+      get().showToast(`Committed & pushed ${sha.slice(0, 7)}`, 'success')
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }

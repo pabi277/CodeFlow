@@ -129,8 +129,15 @@ export interface CommitOptions {
   push: boolean
 }
 
-/** Commit staged files. Returns the new commit SHA. */
+/** Commit staged files and push them to the connected GitHub branch. Returns the new commit SHA. */
 export async function commitChanges(projectId: string, opts: CommitOptions): Promise<string> {
+  // CodeFlow has no local Git object database or pending-commit queue. Creating a
+  // commit without moving the remote ref would leave it unreachable and then
+  // incorrectly mark the local files clean, so fail before performing any work.
+  if (!opts.push) {
+    throw new Error('Commit Only is not supported yet. Use Commit & Push to keep your changes safe.')
+  }
+
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)
   if (!project?.github.connected || !project.github.owner || !project.github.repo || !project.github.branch) {
