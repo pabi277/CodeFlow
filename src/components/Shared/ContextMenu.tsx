@@ -6,6 +6,7 @@ import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiDownlo
 import { AiOutlineFile } from 'react-icons/ai'
 import type { FileNode } from '../../types'
 import { isDataUrl, mimeForPath } from '../../utils/binary'
+import { buildFolderZip, downloadFolderZip } from '../../utils/zip'
 
 export function ContextMenu() {
   const ctx = useStore((s) => s.contextMenu)
@@ -57,50 +58,41 @@ export function ContextMenu() {
 
   const share = async () => {
     if (!node) return
-
     try {
-      if (navigator.share) {
-        // Keep source files as text/plain for maximum compatibility with
-        // Android's file share targets while retaining the real filename.
-        const blob = isDataUrl(node.content) ? await blobForNode(node) : null
-        const file = new File(
-          blob ? [blob] : [node.content],
-          node.name,
-          { type: blob?.type || 'text/plain;charset=utf-8' },
-        )
-        const canShareFile = typeof navigator.canShare === 'function'
-          && navigator.canShare({ files: [file] })
-
-        if (canShareFile) {
-          try {
-            await navigator.share({ title: node.name, files: [file] })
-            showToast(`Shared ${node.name}`, 'success')
-            return
-          } catch (error) {
-            if (isShareCancelled(error)) return
-            // Fall through to text sharing/copying if this browser rejected
-            // the file attachment.
-          }
-        }
-
-        try {
-          await navigator.share({ title: node.name, text: node.content })
-          showToast(`Shared ${node.name} as text`, 'success')
-          return
-        } catch (error) {
-          if (isShareCancelled(error)) return
-        }
+      const blob = await blobForNode(node)
+      const attempt = await tryShareFile(node.name, blob, node.content)
+      if (attempt === 'shared') {
+        showToast(`Shared ${node.name}`, 'success')
+        return
       }
+      if (attempt === 'cancelled') return
 
       const copied = await copyText(node.content)
-      showToast(
-        copied
-          ? 'Sharing is unavailable — file content copied as text'
-          : 'Sharing is unavailable in this browser. Use Download file instead.',
-        copied ? 'info' : 'warning',
-      )
+      if (copied) {
+        showToast('System sharing is unavailable — file content copied as text', 'info')
+      } else {
+        await saveBlob(blob, node.name)
+        showToast(`Downloaded ${node.name} so you can share it`, 'info')
+      }
     } catch (error) {
       showToast((error as Error).message || 'Could not share the file', 'error')
+    }
+  }
+
+  const shareFolder = async () => {
+    if (!node || node.type !== 'folder') return
+    try {
+      const blob = await buildFolderZip(node.id, nodeMap)
+      const zipName = `${node.name}.zip`
+      const attempt = await tryShareFile(zipName, blob)
+      if (attempt === 'shared') {
+        showToast(`Shared ${zipName}`, 'success')
+      } else if (attempt !== 'cancelled') {
+        await saveBlob(blob, zipName)
+        showToast(`Downloaded ${zipName} so you can share it`, 'info')
+      }
+    } catch (error) {
+      showToast((error as Error).message || 'Could not share the folder', 'error')
     }
   }
 
@@ -108,13 +100,20 @@ export function ContextMenu() {
     if (!node) return
     try {
       const blob = await blobForNode(node)
-      const { saveAs } = await import('file-saver')
-      // Use the node's actual name, including its extension (for example,
-      // Stack.c rather than a generic download filename).
-      saveAs(blob, node.name)
+      await saveBlob(blob, node.name)
       showToast(`Downloaded ${node.name}`, 'success')
     } catch (err) {
       showToast((err as Error).message || 'Could not download the file', 'error')
+    }
+  }
+
+  const downloadFolder = async () => {
+    if (!node || node.type !== 'folder') return
+    try {
+      await downloadFolderZip(node.id, nodeMap, node.name)
+      showToast(`Downloaded ${node.name}.zip`, 'success')
+    } catch (error) {
+      showToast((error as Error).message || 'Could not download the folder', 'error')
     }
   }
 
@@ -154,6 +153,8 @@ export function ContextMenu() {
             <Item icon={<FiCopy />} label="Copy Path" onPress={copyPath} />
             {node.type === 'file' && <Item icon={<FiShare2 />} label="Share file" onPress={share} />}
             {node.type === 'file' && <Item icon={<FiDownload />} label="Download file" onPress={download} />}
+            {node.type === 'folder' && <Item icon={<FiShare2 />} label="Share folder as ZIP" onPress={shareFolder} />}
+            {node.type === 'folder' && <Item icon={<FiDownload />} label="Download folder as ZIP" onPress={downloadFolder} />}
             <Item icon={<FiTrash2 />} label={node.type === 'file' ? 'Delete' : 'Delete Folder'} onPress={handleDelete} danger />
           </div>
         </BottomSheet>
@@ -181,6 +182,38 @@ export function ContextMenu() {
       )}
     </>
   )
+}
+
+type ShareAttempt = 'shared' | 'cancelled' | 'unsupported'
+
+async function tryShareFile(name: string, blob: Blob, text?: string): Promise<ShareAttempt> {
+  if (typeof navigator.share !== 'function') return 'unsupported'
+
+  const file = new File([blob], name, { type: blob.type || 'application/octet-stream' })
+  const canTryFile = typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })
+  if (canTryFile) {
+    try {
+      await navigator.share({ title: name, files: [file] })
+      return 'shared'
+    } catch (error) {
+      if (isShareCancelled(error)) return 'cancelled'
+    }
+  }
+
+  if (text !== undefined) {
+    try {
+      await navigator.share({ title: name, text })
+      return 'shared'
+    } catch (error) {
+      if (isShareCancelled(error)) return 'cancelled'
+    }
+  }
+  return 'unsupported'
+}
+
+async function saveBlob(blob: Blob, name: string): Promise<void> {
+  const { saveAs } = await import('file-saver')
+  saveAs(blob, name)
 }
 
 function isShareCancelled(error: unknown): boolean {
