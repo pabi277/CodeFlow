@@ -114,11 +114,14 @@ export async function createTree(
   token: string,
   owner: string,
   repo: string,
-  baseTree: string,
+  baseTree: string | null,
   tree: { path: string; mode: string; type: string; sha: string | null }[],
 ): Promise<string> {
   setToken(token)
-  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, { base_tree: baseTree, tree })
+  // base_tree must be omitted for the first commit in a brand-new (empty) repository.
+  const body: Record<string, unknown> = { tree }
+  if (baseTree) body.base_tree = baseTree
+  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, body)
   return data.sha
 }
 

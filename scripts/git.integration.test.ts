@@ -17,6 +17,13 @@ function sha(content: string): string {
   return Math.abs(h).toString(16).padStart(8, '0')
 }
 
+// --- error the real GitHub API returns for a brand-new repo with zero commits ---
+class EmptyRepoError extends Error {
+  isAxiosError = true
+  response = { status: 409, data: { message: 'Git Repository is empty.' } }
+  constructor() { super('Git Repository is empty.') }
+}
+
 // --- fake GitHub backend ---
 class FakeGitHub {
   repos: Record<string, Record<string, string>> = {}
@@ -24,13 +31,20 @@ class FakeGitHub {
   trees: Record<string, { path: string; sha: string | null }[]> = {}
   commits: Record<string, string> = {}
   branchShas: Record<string, string> = {}
+  emptyRepos = new Set<string>()
 
   addRepo(owner: string, repo: string, files: Record<string, string>) {
     this.repos[`${owner}/${repo}`] = files
     this.branchShas[`${owner}/${repo}/main`] = 'initial-commit'
   }
 
+  addEmptyRepo(owner: string, repo: string) {
+    this.repos[`${owner}/${repo}`] = {}
+    this.emptyRepos.add(`${owner}/${repo}`)
+  }
+
   getTree = async (_t: string, owner: string, repo: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
     const r = this.repos[`${owner}/${repo}`]
     const dirs = new Set<string>()
     for (const p of Object.keys(r)) {
@@ -56,14 +70,15 @@ class FakeGitHub {
     this.blobs[s] = content
     return s
   }
-  getRef = async (_t: string, owner: string, repo: string, branch: string) => ({
-    object: { sha: this.branchShas[`${owner}/${repo}/${branch}`] },
-  })
+  getRef = async (_t: string, owner: string, repo: string, branch: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
+    return { object: { sha: this.branchShas[`${owner}/${repo}/${branch}`] } }
+  }
   getCommit = async (_t: string, _o: string, _r: string, sha: string) => ({
     tree: { sha: this.commits[sha] || 'base-tree' },
     message: 'x',
   })
-  createTree = async (_t: string, _o: string, _r: string, _base: string, entries: { path: string; sha: string | null }[]) => {
+  createTree = async (_t: string, _o: string, _r: string, _base: string | null, entries: { path: string; sha: string | null }[]) => {
     const ts = sha(JSON.stringify(entries))
     this.trees[ts] = entries
     return ts
@@ -73,7 +88,7 @@ class FakeGitHub {
     this.commits[cs] = treeSha
     return { sha: cs }
   }
-  updateRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+  applyRef = (owner: string, repo: string, branch: string, commitSha: string) => {
     const treeSha = this.commits[commitSha]
     const entries = this.trees[treeSha] || []
     const r = this.repos[`${owner}/${repo}`]
@@ -82,6 +97,13 @@ class FakeGitHub {
       else r[e.path] = this.blobs[e.sha]
     }
     this.branchShas[`${owner}/${repo}/${branch}`] = commitSha
+    this.emptyRepos.delete(`${owner}/${repo}`)
+  }
+  updateRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.applyRef(owner, repo, branch, commitSha)
+  }
+  createRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.applyRef(owner, repo, branch, commitSha)
   }
   listBranches = async () => [{ name: 'main' }]
 }
@@ -114,6 +136,7 @@ async function main() {
     createTree: fake.createTree,
     createCommit: fake.createCommit,
     updateRef: fake.updateRef,
+    createRef: fake.createRef,
     listBranches: fake.listBranches,
   })
 
@@ -178,6 +201,37 @@ async function main() {
   fake.repos['octocat/hello2']['util_new.py'] = 'print("brand new")\n'
   const result2 = await gitService.pullChanges(cleanProject.id)
   ok(result2.created === 1, `pull created 1 new remote file (got ${result2.created})`)
+
+  console.log('\n[8] clone a brand-new (empty) repository')
+  fake.addEmptyRepo('octocat', 'brandnew')
+  const emptyProject = await gitService.cloneRepository(
+    { full_name: 'octocat/brandnew', name: 'brandnew', default_branch: 'main' } as any,
+    'brandnew',
+  )
+  const emptyAll = await fsDb.listAllInProject(emptyProject.id)
+  const emptyFiles = emptyAll.filter((n) => n.type === 'file')
+  ok(emptyProject.github.connected && emptyProject.github.owner === 'octocat', 'empty repo cloned as connected project')
+  ok(emptyProject.github.branch === 'main', `empty repo uses default branch main (got ${emptyProject.github.branch})`)
+  ok(emptyFiles.length === 0, `empty repo clone has no files (got ${emptyFiles.length})`)
+
+  console.log('\n[9] push the first commit to an empty repository (upload)')
+  const firstFile = await fsDb.createNode(emptyProject.id, null, 'hello.txt', 'file', 'hello world\n')
+  await gitService.commitChanges(emptyProject.id, { message: 'first commit', includeIds: [firstFile.id], push: true })
+  ok(fake.repos['octocat/brandnew']['hello.txt'] === 'hello world\n', 'first file uploaded to empty repo')
+  ok(fake.branchShas['octocat/brandnew/main'] != null, 'branch ref created for first commit')
+  ok(!fake.emptyRepos.has('octocat/brandnew'), 'repo no longer treated as empty after first push')
+  const committedFirst = await fsDb.getNode(firstFile.id)!
+  ok(committedFirst.isNew === false, 'uploaded file no longer marked new')
+  ok(committedFirst.gitSha != null && committedFirst.gitSha !== '', 'uploaded file synced with gitSha')
+
+  console.log('\n[10] pull on an empty repository is a no-op (no crash)')
+  fake.addEmptyRepo('octocat', 'empty2')
+  const emptyProject2 = await gitService.cloneRepository(
+    { full_name: 'octocat/empty2', name: 'empty2', default_branch: 'main' } as any,
+    'empty2',
+  )
+  const emptyPull = await gitService.pullChanges(emptyProject2.id)
+  ok(emptyPull.updated === 0 && emptyPull.created === 0 && emptyPull.conflicts.length === 0, 'pull on empty repo returns no changes')
 
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
