@@ -6,6 +6,7 @@ import { Preview } from './Preview'
 import { TerminalHost } from '../Terminal/Terminal'
 
 export function EditorWorkspace() {
+  const zenMode = useStore((s) => s.zenMode)
   const previewMode = useStore((s) => s.previewMode)
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
@@ -38,7 +39,7 @@ export function EditorWorkspace() {
           </div>
         )}
       </div>
-      <TerminalHost />
+      {!zenMode && <TerminalHost />}
     </div>
   )
 }

@@ -45,6 +45,20 @@ export interface Project {
   github: GitHubMeta
 }
 
+export interface ThemePalette {
+  name: string
+  dark: boolean
+  bg: string
+  panel: string
+  text: string
+  muted: string
+  input: string
+  accent: string
+  border: string
+  selection: string
+  activeLine: string
+}
+
 export interface AppSettings {
   theme: 'dark' | 'light'
   themePreset: string
@@ -64,6 +78,14 @@ export interface AppSettings {
   showStatusBar: boolean
   cursorStyle: 'line' | 'block' | 'underline'
   smoothCursor: boolean
+  formatOnSave: boolean
+  formatOnPaste: boolean
+  indentGuides: boolean
+  rainbowBrackets: boolean
+  stickyScroll: boolean
+  autoDetectIndent: boolean
+  /** User-imported VS Code themes, keyed by slug */
+  customThemes: Record<string, ThemePalette>
   judge0ApiKey: string
   judge0BaseUrl: string
   timeLimit: number
@@ -75,10 +97,19 @@ export interface AppSettings {
 export interface EditorPersistState {
   openTabIds: string[]
   activeTabId: string | null
+  pinnedTabIds: string[]
   cursorPositions: Record<string, { line: number; col: number }>
   scrollPositions: Record<string, number>
   terminalOpen: boolean
   terminalHeight: number
+}
+
+export interface GitConflict {
+  fileId: string
+  path: string
+  local: string
+  remote: string
+  remoteSha: string
 }
 
 export type ExecStatus =

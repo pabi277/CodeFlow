@@ -7,17 +7,26 @@ import {
   highlightActiveLine,
   highlightActiveLineGutter,
   drawSelection,
+  hoverTooltip,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { multiCursorExtensions } from '../../editor/multiCursor'
 import { expandEmmetInEditor } from '../../editor/emmetExpand'
+import { indentGuides } from '../../editor/indentGuides'
+import { rainbowBrackets } from '../../editor/rainbowBrackets'
+import { linkedEditing } from '../../editor/linkedEditing'
+import { formatOnPaste } from '../../editor/pasteIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
 import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
+import { setProjectIndex } from '../../editor/completions/projectIndex'
+import { extractLocalSymbols } from '../../editor/completions/localSymbols'
 import { useStore } from '../../store/useStore'
 import { detectLanguage } from '../../utils/language'
+import { detectIndent } from '../../utils/detectIndent'
+import { wordAt } from '../../utils/symbolNav'
 import { loadLanguageExtension } from '../../editor/editorLanguages'
 import { editorExtensionsForPalette } from '../../editor/themes'
 import { resolvePalette } from '../../utils/theme'
@@ -26,6 +35,7 @@ import { registerEditor, goToPosition } from '../../utils/editorApi'
 import { debounce } from '../../utils/debounce'
 import { VscCode } from 'react-icons/vsc'
 import { Minimap } from './Minimap'
+import { StickyScroll } from './StickyScroll'
 
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -40,6 +50,11 @@ export function Editor() {
   const bracketComp = useRef(new Compartment())
   const completionComp = useRef(new Compartment())
   const lintComp = useRef(new Compartment())
+  const guidesComp = useRef(new Compartment())
+  const rainbowComp = useRef(new Compartment())
+  const linkedComp = useRef(new Compartment())
+  const pasteComp = useRef(new Compartment())
+  const drawSelComp = useRef(new Compartment())
 
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
@@ -82,6 +97,38 @@ export function Editor() {
       return storeDiagsToCm(view, useStore.getState().diagnostics.filter((d) => d.fileId === id))
     })
 
+    const hover = hoverTooltip((view, pos) => {
+      const line = view.state.doc.lineAt(pos)
+      const word = wordAt(view.state.doc.toString(), line.number, pos - line.from + 1)
+      if (!word) return null
+      const store = useStore.getState()
+      const id = store.activeTabId
+      const node = id ? store.nodeMap[id] : undefined
+      if (!node) return null
+      const lang = detectLanguage(node.path)
+      const hit = extractLocalSymbols(node.content, lang).find((s) => s.name === word)
+      if (!hit) return null
+      return {
+        pos,
+        above: true,
+        create() {
+          const dom = document.createElement('div')
+          dom.className = 'rounded-md border border-border/60 bg-panel px-2.5 py-1.5 text-[12px] text-ink shadow-lg'
+          dom.textContent = `${hit.type} ${hit.name}  ·  line ${hit.line}`
+          return { dom }
+        },
+      }
+    })
+
+    const gotoClick = EditorView.domEventHandlers({
+      click(event) {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false
+        event.preventDefault()
+        void useStore.getState().goToDefinition()
+        return true
+      },
+    })
+
     const view = new EditorView({
       parent: container,
       state: EditorState.create({
@@ -90,12 +137,14 @@ export function Editor() {
           lineNumbers(),
           highlightActiveLine(),
           highlightActiveLineGutter(),
-          drawSelection(),
+          drawSelComp.current.of(drawSelection()),
           history(),
           indentOnInput(),
           bracketMatching(),
           foldGutter(),
           closeBrackets(),
+          hover,
+          gotoClick,
           keymap.of([
             {
               key: 'Tab',
@@ -106,6 +155,9 @@ export function Editor() {
                 return indentWithTab.run?.(v) ?? false
               },
             },
+            { key: 'F12', run: () => { void useStore.getState().goToDefinition(); return true } },
+            { key: 'Shift-F12', run: () => { void useStore.getState().findReferences(); return true } },
+            { key: 'F2', run: () => { useStore.getState().openRename(); return true } },
             ...closeBracketsKeymap,
             ...defaultKeymap,
             ...completionKeymap,
@@ -125,13 +177,17 @@ export function Editor() {
             }),
           ),
           langComp.current.of([]),
-          themeComp.current.of(editorExtensionsForPalette(resolvePalette(settings.themePreset))),
+          themeComp.current.of(editorExtensionsForPalette(resolvePalette(settings.themePreset, settings.customThemes))),
           lineNumComp.current.of([]),
           wrapComp.current.of([]),
           fontComp.current.of([]),
           indentComp.current.of([]),
           cursorShapeComp.current.of([]),
           bracketComp.current.of([]),
+          guidesComp.current.of([]),
+          rainbowComp.current.of([]),
+          linkedComp.current.of([]),
+          pasteComp.current.of([]),
           lintComp.current.of([lintGutter(), lintSource]),
           updateListener,
         ],
@@ -190,6 +246,10 @@ export function Editor() {
   useEffect(() => {
     let cancelled = false
     const lang = activePath ? detectLanguage(activePath) : 'plain'
+    const files = Object.values(nodeMap)
+      .filter((n) => n.type === 'file')
+      .map((n) => ({ path: n.path, name: n.name }))
+    setProjectIndex(activePath || '', files)
     loadLanguageExtension(lang).then((ext) => {
       const view = viewRef.current
       if (cancelled || !view) return
@@ -219,7 +279,7 @@ export function Editor() {
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
-    view.dispatch({ effects: themeComp.current.reconfigure(editorExtensionsForPalette(resolvePalette(settings.themePreset))) })
+    view.dispatch({ effects: themeComp.current.reconfigure(editorExtensionsForPalette(resolvePalette(settings.themePreset, settings.customThemes))) })
     view.dispatch({ effects: lineNumComp.current.reconfigure(settings.showLineNumbers ? lineNumbers() : []) })
     view.dispatch({ effects: wrapComp.current.reconfigure(settings.wordWrap ? EditorView.lineWrapping : []) })
     const fontFamily = FONT_FAMILIES[settings.fontFamily] || FONT_FAMILIES['system-monospace']
@@ -228,15 +288,46 @@ export function Editor() {
         EditorView.theme({ '&': { fontSize: `${settings.fontSize}px` }, '.cm-scroller': { fontFamily } }),
       ),
     })
-    const tabSizeExt = settings.indentWithSpaces ? indentUnit.of(' '.repeat(settings.tabSize)) : EditorState.tabSize.of(settings.tabSize)
+
+    let tabSize = settings.tabSize
+    let spaces = settings.indentWithSpaces
+    if (settings.autoDetectIndent && activeTabId) {
+      const guessed = detectIndent(nodeMap[activeTabId]?.content || '')
+      if (guessed) {
+        tabSize = guessed.tabSize
+        spaces = guessed.indentWithSpaces
+      }
+    }
+    const tabSizeExt = spaces ? indentUnit.of(' '.repeat(tabSize)) : EditorState.tabSize.of(tabSize)
     view.dispatch({ effects: indentComp.current.reconfigure(tabSizeExt) })
+
     const cursorShape = settings.cursorStyle === 'block' ? 'block' : settings.cursorStyle === 'underline' ? 'underline' : 'line'
     view.dispatch({
-      effects: cursorShapeComp.current.reconfigure(EditorView.theme({ '&': { cursorShape } as Record<string, string> })),
+      effects: cursorShapeComp.current.reconfigure(
+        EditorView.theme({
+          '&': { cursorShape } as Record<string, string>,
+          '.cm-cursor, .cm-dropCursor': settings.smoothCursor
+            ? { transition: 'left 80ms ease, top 80ms ease' }
+            : {},
+        }),
+      ),
+    })
+    view.dispatch({
+      effects: drawSelComp.current.reconfigure(drawSelection({ cursorBlinkRate: settings.smoothCursor ? 1200 : 530 })),
     })
     view.dispatch({ effects: bracketComp.current.reconfigure(settings.bracketMatching ? bracketMatching() : []) })
+    view.dispatch({ effects: guidesComp.current.reconfigure(settings.indentGuides ? indentGuides() : []) })
+    view.dispatch({ effects: rainbowComp.current.reconfigure(settings.rainbowBrackets ? rainbowBrackets() : []) })
+    const lang = activePath ? detectLanguage(activePath) : 'plain'
+    view.dispatch({ effects: linkedComp.current.reconfigure(['html', 'xml', 'vue'].includes(lang) ? linkedEditing() : []) })
+    view.dispatch({ effects: pasteComp.current.reconfigure(settings.formatOnPaste ? formatOnPaste() : []) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.themePreset, settings.showLineNumbers, settings.wordWrap, settings.fontSize, settings.fontFamily, settings.tabSize, settings.indentWithSpaces, settings.cursorStyle, settings.bracketMatching])
+  }, [
+    settings.themePreset, settings.customThemes, settings.showLineNumbers, settings.wordWrap, settings.fontSize,
+    settings.fontFamily, settings.tabSize, settings.indentWithSpaces, settings.cursorStyle, settings.smoothCursor,
+    settings.bracketMatching, settings.indentGuides, settings.rainbowBrackets, settings.formatOnPaste,
+    settings.autoDetectIndent, activePath, activeTabId,
+  ])
 
   // Refresh gutter lints when diagnostics change
   useEffect(() => {
@@ -250,6 +341,7 @@ export function Editor() {
   return (
     <div className="relative flex h-full w-full">
       <div ref={containerRef} className="h-full min-w-0 flex-1 overflow-hidden bg-transparent" />
+      <StickyScroll />
       {hasFile && settings.showMinimap && <Minimap />}
       {!hasFile && (
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">

@@ -62,12 +62,19 @@ export function CommandPalette() {
   const openPreviewInNewTab = useStore((s) => s.openPreviewInNewTab)
   const setShortcutsOpen = useStore((s) => s.setShortcutsOpen)
   const setWelcomeOpen = useStore((s) => s.setWelcomeOpen)
+  const toggleZen = useStore((s) => s.toggleZen)
+  const setSymbolSearchOpen = useStore((s) => s.setSymbolSearchOpen)
+  const goToDefinition = useStore((s) => s.goToDefinition)
+  const findReferences = useStore((s) => s.findReferences)
+  const openRename = useStore((s) => s.openRename)
   const [query, setQuery] = useState('')
+  const [sel, setSel] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
       setQuery('')
+      setSel(0)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
@@ -101,6 +108,11 @@ export function CommandPalette() {
     { label: 'Preview: Editor Only', run: () => { setPreviewMode('editor'); setOpen(false) } },
     { label: 'Preview: Split', run: () => { setPreviewMode('split'); setOpen(false) } },
     { label: 'Preview: Preview Only', run: () => { setPreviewMode('preview'); setOpen(false) } },
+    { label: 'Toggle Zen Mode', run: () => { toggleZen(); setOpen(false) } },
+    { label: 'Go to Symbol in Workspace', run: () => { setSymbolSearchOpen(true); setOpen(false) } },
+    { label: 'Go to Definition', run: () => { void goToDefinition(); setOpen(false) } },
+    { label: 'Find All References', run: () => { void findReferences(); setOpen(false) } },
+    { label: 'Rename Symbol', run: () => { openRename(); setOpen(false) } },
     { label: 'Go to Line', run: () => { setGoToLineOpen(true); setOpen(false) } },
     { label: 'Format Document', run: () => { formatActiveDocument(); setOpen(false) } },
     { label: 'Expand Emmet Abbreviation', run: () => { expandEmmet(detectLanguage(useStore.getState().nodeMap[useStore.getState().activeTabId || '']?.path || '')); setOpen(false) } },
@@ -139,6 +151,13 @@ export function CommandPalette() {
 
   const results = [...cmdResults, ...fileResults].sort((a, b) => b.score - a.score).slice(0, 30)
 
+  useEffect(() => { setSel(0) }, [query])
+
+  const runResult = (r: (typeof results)[number]) => {
+    if (r.type === 'file') { openFile(r.id); setOpen(false) }
+    else r.run()
+  }
+
   if (!open) return null
 
   return (
@@ -151,17 +170,22 @@ export function CommandPalette() {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowDown') { e.preventDefault(); setSel((i) => Math.min(results.length - 1, i + 1)) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((i) => Math.max(0, i - 1)) }
+              else if (e.key === 'Enter') { e.preventDefault(); if (results[sel]) runResult(results[sel]) }
+            }}
             placeholder="Type a command or file name…"
             className="flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-muted/60"
           />
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {results.length ? (
-            results.map((r) => (
+            results.map((r, i) => (
               <button
                 key={`${r.type}-${r.label}`}
-                onClick={() => { if (r.type === 'file') { openFile(r.id); setOpen(false) } else r.run() }}
-                className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink active:bg-accent/10"
+                onClick={() => runResult(r)}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink ${i === sel ? 'bg-accent/15' : 'active:bg-accent/10'}`}
               >
                 <span className={r.type === 'file' ? 'text-ink-muted' : 'text-accent'}>
                   {r.type === 'file' ? <AiOutlineFile size={18} /> : <VscSymbolMethod size={18} />}

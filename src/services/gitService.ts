@@ -9,6 +9,7 @@ import { db } from '../db/db'
 import type {
   CloneProgress,
   FileNode,
+  GitConflict,
   GitHubRepo,
   Project,
   GitHubBranch,
@@ -161,6 +162,7 @@ export interface PullResult {
   updated: number
   created: number
   conflicts: string[]
+  conflictDetails: GitConflict[]
   deletedRemote: string[]
 }
 
@@ -181,7 +183,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
   const localByPath: Record<string, FileNode> = {}
   for (const n of localNodes) localByPath[n.path] = n
 
-  const result: PullResult = { updated: 0, created: 0, conflicts: [], deletedRemote: [] }
+  const result: PullResult = { updated: 0, created: 0, conflicts: [], conflictDetails: [], deletedRemote: [] }
   const createPathToId: Record<string, string> = { '/': project.rootFolderId }
 
   // ensure folders exist for remote blobs
@@ -223,7 +225,15 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
           const remoteChanged = local.gitSha !== blob.sha
           const locallyChanged = local.isNew || local.isGitModified
           if (remoteChanged && locallyChanged) {
+            const remoteContent = await gh.getFileContent(token, blob.url || '')
             result.conflicts.push(nodePath)
+            result.conflictDetails.push({
+              fileId: local.id,
+              path: nodePath,
+              local: local.content,
+              remote: remoteContent,
+              remoteSha: blob.sha,
+            })
           } else if (remoteChanged) {
             const content = await gh.getFileContent(token, blob.url || '')
             await fsDb.syncGitFile(local.id, content, blob.sha)
@@ -278,6 +288,30 @@ export async function switchBranch(projectId: string, branch: string): Promise<v
   const branches = await gh.listBranches(token, project.github.owner, project.github.repo)
   if (!branches.some((b) => b.name === branch)) throw new Error(`Branch "${branch}" does not exist.`)
   await projectsDb.updateProjectGithub(projectId, { branch })
+}
+
+export async function createBranch(projectId: string, name: string): Promise<void> {
+  const token = await requireToken()
+  const project = await projectsDb.getProject(projectId)
+  if (!project?.github.connected || !project.github.owner || !project.github.repo || !project.github.branch) {
+    throw new Error('This project is not connected to a GitHub repository.')
+  }
+  const branch = name.trim().replace(/^refs\/heads\//, '')
+  if (!branch || /[\s~^:?*[\\]/.test(branch)) throw new Error('Invalid branch name.')
+  const { owner, repo } = project.github
+  const ref = await gh.getRef(token, owner, repo, project.github.branch)
+  await gh.createRef(token, owner, repo, branch, ref.object.sha)
+  await projectsDb.updateProjectGithub(projectId, { branch })
+}
+
+export async function deleteBranch(projectId: string, name: string): Promise<void> {
+  const token = await requireToken()
+  const project = await projectsDb.getProject(projectId)
+  if (!project?.github.connected || !project.github.owner || !project.github.repo) {
+    throw new Error('This project is not connected to a GitHub repository.')
+  }
+  if (project.github.branch === name) throw new Error('Cannot delete the branch you are on.')
+  await gh.deleteRef(token, project.github.owner, project.github.repo, name)
 }
 
 /** Get the commit history (read-only) for the connected project. */

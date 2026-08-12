@@ -15,6 +15,8 @@ import type {
   Diagnostic,
   PreviewMode,
   BottomPanelTab,
+  GitConflict,
+  ThemePalette,
 } from '../types'
 import * as fsDb from '../db/files'
 import { db } from '../db/db'
@@ -37,7 +39,9 @@ import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from 
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
 import { replaceInText } from '../utils/projectSearch'
-import { goToPosition, replaceDocument } from '../utils/editorApi'
+import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorApi'
+import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
+import { parseThemeText } from '../utils/themeImport'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
@@ -56,7 +60,9 @@ interface StoreState {
   // tabs / editor
   openTabs: string[]
   activeTabId: string | null
+  pinnedTabs: string[]
   dirtyTabs: Record<string, boolean>
+  zenMode: boolean
 
   // settings
   settings: AppSettings
@@ -119,6 +125,12 @@ interface StoreState {
   viewerOpen: boolean
   shortcutsOpen: boolean
   welcomeOpen: boolean
+  gitConflicts: GitConflict[]
+  conflictFileId: string | null
+  symbolSearchOpen: boolean
+  renameOpen: boolean
+  referenceHits: { fileId: string; path: string; name: string; line: number; col: number }[]
+  referencesOpen: boolean
 
   // actions
   bootstrap: () => Promise<void>
@@ -178,6 +190,27 @@ interface StoreState {
   setViewerOpen: (v: boolean) => void
   setShortcutsOpen: (v: boolean) => void
   setWelcomeOpen: (v: boolean) => void
+  toggleZen: () => void
+  pinTab: (id: string) => void
+  unpinTab: (id: string) => void
+  togglePinTab: (id: string) => void
+  closeOtherTabs: (id: string) => Promise<void>
+  closeTabsToTheRight: (id: string) => Promise<void>
+  closeSavedTabs: () => Promise<void>
+  reorderTabs: (fromId: string, toId: string) => void
+  doCreateBranch: (name: string) => Promise<void>
+  doDeleteBranch: (name: string) => Promise<void>
+  openConflict: (fileId: string) => void
+  closeConflict: () => void
+  resolveConflict: (fileId: string, choice: 'local' | 'remote' | 'both') => Promise<void>
+  goToDefinition: () => Promise<void>
+  findReferences: () => Promise<void>
+  openRename: () => void
+  closeRename: () => void
+  renameCurrentSymbol: (next: string) => Promise<number>
+  setSymbolSearchOpen: (v: boolean) => void
+  setReferencesOpen: (v: boolean) => void
+  importThemeJson: (text: string) => Promise<void>
   openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
@@ -250,7 +283,9 @@ export const useStore = create<StoreState>((set, get) => ({
   expanded: {},
   openTabs: [],
   activeTabId: null,
+  pinnedTabs: [],
   dirtyTabs: {},
+  zenMode: false,
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
@@ -303,6 +338,12 @@ export const useStore = create<StoreState>((set, get) => ({
   viewerOpen: false,
   shortcutsOpen: false,
   welcomeOpen: false,
+  gitConflicts: [],
+  conflictFileId: null,
+  symbolSearchOpen: false,
+  renameOpen: false,
+  referenceHits: [],
+  referencesOpen: false,
 
   bootstrap: async () => {
     const [projects, settings, editorState, auth] = await Promise.all([
@@ -326,7 +367,13 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().setActiveProject(active?.id ?? null)
     // restore tabs
     if (editorState.openTabIds.length) {
-      set({ openTabs: editorState.openTabIds, activeTabId: editorState.activeTabId, terminalOpen: editorState.terminalOpen, terminalHeight: editorState.terminalHeight || 40 })
+      set({
+        openTabs: editorState.openTabIds,
+        activeTabId: editorState.activeTabId,
+        pinnedTabs: editorState.pinnedTabIds || [],
+        terminalOpen: editorState.terminalOpen,
+        terminalHeight: editorState.terminalHeight || 40,
+      })
     }
     await get().loadHistory()
     await get().refreshGitStatus()
@@ -343,7 +390,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setActiveProject: async (id) => {
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: {}, diagnostics: [] })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [] })
       return
     }
     await projectsDb.touchProject(id)
@@ -394,7 +441,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!node || node.type !== 'file') return
     const dirty = get().dirtyTabs
     set((s) => ({
-      openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
+      openTabs: s.openTabs.includes(id) ? s.openTabs : insertTab(s.openTabs, s.pinnedTabs, id),
       activeTabId: id,
       dirtyTabs: { ...dirty, [id]: dirty[id] ?? false },
     }))
@@ -402,7 +449,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   closeTab: async (id) => {
-    const { openTabs, activeTabId } = get()
+    const { openTabs, activeTabId, pinnedTabs } = get()
     const nextTabs = openTabs.filter((t) => t !== id)
     let nextActive = activeTabId
     if (activeTabId === id) {
@@ -412,7 +459,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => {
       const dirtyTabs = { ...s.dirtyTabs }
       delete dirtyTabs[id]
-      return { openTabs: nextTabs, activeTabId: nextActive, dirtyTabs }
+      return { openTabs: nextTabs, activeTabId: nextActive, dirtyTabs, pinnedTabs: pinnedTabs.filter((t) => t !== id) }
     })
     await get().persistEditorState()
   },
@@ -498,9 +545,17 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }),
   persistContent: async (id) => {
-    const node = get().nodeMap[id]
+    let node = get().nodeMap[id]
     if (!node || node.type !== 'file') return
     try {
+      if (get().settings.formatOnSave) {
+        const result = await formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
+        if (result.ok && result.text !== node.content) {
+          get().saveContent(id, result.text)
+          if (get().activeTabId === id) replaceDocument(result.text)
+          node = get().nodeMap[id] || node
+        }
+      }
       await fsDb.updateContent(id, node.content)
       set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false } }))
     } catch (err) {
@@ -512,6 +567,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const state: EditorPersistState = {
       openTabIds: get().openTabs,
       activeTabId: get().activeTabId,
+      pinnedTabIds: get().pinnedTabs,
       cursorPositions: {},
       scrollPositions: {},
       terminalOpen: get().terminalOpen,
@@ -691,6 +747,58 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast((err as Error).message, 'error')
     }
   },
+  doCreateBranch: async (name) => {
+    const pid = get().activeProjectId
+    if (!pid) return
+    try {
+      await gitService.createBranch(pid, name)
+      await get().loadBranches()
+      get().showToast(`Created branch ${name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  doDeleteBranch: async (name) => {
+    const pid = get().activeProjectId
+    if (!pid) return
+    try {
+      await gitService.deleteBranch(pid, name)
+      await get().loadBranches()
+      get().showToast(`Deleted ${name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message, 'error')
+    }
+  },
+  openConflict: (fileId) => set({ conflictFileId: fileId }),
+  closeConflict: () => set({ conflictFileId: null }),
+  resolveConflict: async (fileId, choice) => {
+    const conflict = get().gitConflicts.find((c) => c.fileId === fileId)
+    const node = get().nodeMap[fileId]
+    if (!conflict || !node) return
+    let next = node.content
+    if (choice === 'remote') next = conflict.remote
+    else if (choice === 'local') next = conflict.local
+    else {
+      next = `<<<<<<< Local\n${conflict.local.replace(/\n$/, '')}\n=======\n${conflict.remote.replace(/\n$/, '')}\n>>>>>>> Remote\n`
+    }
+    get().saveContent(fileId, next)
+    if (choice === 'remote') {
+      try {
+        await fsDb.syncGitFile(fileId, next, conflict.remoteSha)
+      } catch {
+        await get().persistContent(fileId)
+      }
+    } else {
+      await get().persistContent(fileId)
+    }
+    await get().refreshProject()
+    set((s) => ({
+      gitConflicts: s.gitConflicts.filter((c) => c.fileId !== fileId),
+      conflictFileId: s.conflictFileId === fileId ? null : s.conflictFileId,
+    }))
+    get().showToast(choice === 'both' ? 'Kept both with conflict markers' : `Kept ${choice} version`, 'success')
+    await get().refreshGitStatus()
+  },
   openDiff: (fileId) => set({ diffFileId: fileId }),
   closeDiff: () => set({ diffFileId: null }),
   discardFileChanges: async (fileId) => {
@@ -711,7 +819,11 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().refreshGitStatus()
       let msg = `Pull complete. ${result.updated} updated, ${result.created} created.`
       if (result.conflicts.length) msg += ` ${result.conflicts.length} conflict(s).`
+      set({ gitConflicts: result.conflictDetails || [] })
       get().showToast(msg, result.conflicts.length ? 'error' : 'success')
+      if (result.conflictDetails?.length) {
+        set({ conflictFileId: result.conflictDetails[0].fileId, drawerOpen: true, drawerTab: 'git' })
+      }
       if (result.deletedRemote.length) {
         get().showToast(`WARNING: ${result.deletedRemote.length} file(s) deleted remotely were kept locally.`, 'info')
       }
@@ -804,6 +916,138 @@ export const useStore = create<StoreState>((set, get) => ({
   setViewerOpen: (v) => set({ viewerOpen: v }),
   setShortcutsOpen: (v) => set({ shortcutsOpen: v }),
   setWelcomeOpen: (v) => set({ welcomeOpen: v }),
+  toggleZen: () => set((s) => {
+    const zenMode = !s.zenMode
+    return {
+      zenMode,
+      drawerOpen: zenMode ? false : s.drawerOpen,
+      terminalOpen: zenMode ? false : s.terminalOpen,
+    }
+  }),
+  pinTab: (id) => set((s) => {
+    if (s.pinnedTabs.includes(id)) return {}
+    const pinnedTabs = [...s.pinnedTabs, id]
+    return { pinnedTabs, openTabs: orderTabs(s.openTabs, pinnedTabs) }
+  }),
+  unpinTab: (id) => set((s) => {
+    const pinnedTabs = s.pinnedTabs.filter((t) => t !== id)
+    return { pinnedTabs, openTabs: orderTabs(s.openTabs, pinnedTabs) }
+  }),
+  togglePinTab: (id) => {
+    if (get().pinnedTabs.includes(id)) get().unpinTab(id)
+    else get().pinTab(id)
+    void get().persistEditorState()
+  },
+  closeOtherTabs: async (id) => {
+    const keep = new Set([id, ...get().pinnedTabs])
+    for (const t of [...get().openTabs]) {
+      if (!keep.has(t)) await get().closeTab(t)
+    }
+  },
+  closeTabsToTheRight: async (id) => {
+    const idx = get().openTabs.indexOf(id)
+    if (idx < 0) return
+    const pinned = new Set(get().pinnedTabs)
+    for (const t of get().openTabs.slice(idx + 1)) {
+      if (!pinned.has(t)) await get().closeTab(t)
+    }
+  },
+  closeSavedTabs: async () => {
+    const pinned = new Set(get().pinnedTabs)
+    for (const t of [...get().openTabs]) {
+      if (!get().dirtyTabs[t] && !pinned.has(t)) await get().closeTab(t)
+    }
+  },
+  reorderTabs: (fromId, toId) => {
+    if (fromId === toId) return
+    set((s) => {
+      const tabs = [...s.openTabs]
+      const from = tabs.indexOf(fromId)
+      const to = tabs.indexOf(toId)
+      if (from < 0 || to < 0) return {}
+      tabs.splice(from, 1)
+      tabs.splice(to, 0, fromId)
+      return { openTabs: orderTabs(tabs, s.pinnedTabs) }
+    })
+    void get().persistEditorState()
+  },
+  goToDefinition: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node) return
+    const name = getWordAtCursor() || wordAt(node.content, get().cursorPos.line, get().cursorPos.col)
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file').map((n) => ({ id: n.id, path: n.path, content: n.content }))
+    const hits = findDefinitions(name, files, id || undefined)
+    if (!hits.length) {
+      get().showToast(`No definition for “${name}”`, 'info')
+      return
+    }
+    await get().goToLocation(hits[0].fileId, hits[0].line, hits[0].col)
+    if (hits.length > 1) {
+      set({ referenceHits: hits, referencesOpen: true })
+      get().showToast(`${hits.length} definitions — pick one`, 'info')
+    }
+  },
+  findReferences: async () => {
+    const id = get().activeTabId
+    const node = id ? get().nodeMap[id] : undefined
+    if (!node) return
+    const name = getWordAtCursor() || wordAt(node.content, get().cursorPos.line, get().cursorPos.col)
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file').map((n) => ({ id: n.id, path: n.path, content: n.content }))
+    const hits = findRefs(name, files)
+    set({ referenceHits: hits, referencesOpen: true, symbolSearchOpen: false })
+    if (!hits.length) get().showToast(`No references to “${name}”`, 'info')
+  },
+  openRename: () => {
+    const name = getWordAtCursor()
+    if (!name) {
+      get().showToast('No symbol under cursor', 'info')
+      return
+    }
+    set({ renameOpen: true })
+  },
+  closeRename: () => set({ renameOpen: false }),
+  renameCurrentSymbol: async (next) => {
+    const name = getWordAtCursor()
+    if (!name || !next.trim() || next.trim() === name) {
+      set({ renameOpen: false })
+      return 0
+    }
+    let total = 0
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file')
+    for (const n of files) {
+      const result = renameInText(n.content, name, next.trim())
+      if (!result.count) continue
+      total += result.count
+      get().saveContent(n.id, result.text)
+      if (get().activeTabId === n.id) replaceDocument(result.text)
+      await get().persistContent(n.id)
+    }
+    set({ renameOpen: false })
+    get().refreshDiagnostics()
+    get().showToast(total ? `Renamed ${total} occurrence${total === 1 ? '' : 's'}` : 'Nothing to rename', total ? 'success' : 'info')
+    return total
+  },
+  setSymbolSearchOpen: (v) => set({ symbolSearchOpen: v }),
+  setReferencesOpen: (v) => set({ referencesOpen: v }),
+  importThemeJson: async (text) => {
+    try {
+      const imported = parseThemeText(text)
+      const customThemes: Record<string, ThemePalette> = { ...get().settings.customThemes, [imported.key]: imported.palette }
+      await get().updateSettings({ customThemes, themePreset: imported.key })
+      get().showToast(`Imported theme “${imported.palette.name}”`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Could not import theme', 'error')
+    }
+  },
   openPreviewInNewTab: async () => {
     const id = get().activeTabId
     const node = id ? get().nodeMap[id] : undefined
@@ -969,10 +1213,22 @@ async function createSeedPath(projectId: string, rootId: string, seed: SeedFile)
   await fsDb.createNode(projectId, parentId, file, 'file', seed.content)
 }
 
+function insertTab(openTabs: string[], pinnedTabs: string[], id: string): string[] {
+  if (openTabs.includes(id)) return openTabs
+  return orderTabs([...openTabs, id], pinnedTabs)
+}
+
+function orderTabs(openTabs: string[], pinnedTabs: string[]): string[] {
+  const pinned = pinnedTabs.filter((id) => openTabs.includes(id))
+  const rest = openTabs.filter((id) => !pinnedTabs.includes(id))
+  return [...pinned, ...rest]
+}
+
 function getRootNodeId(nodeMap: Record<string, FileNode>): string | null {
   const root = Object.values(nodeMap).find((n) => n.path === '/')
   return root ? root.id : null
 }
+
 async function findChildByName(projectId: string, parentId: string | null, name: string, type: 'file' | 'folder'): Promise<string | null> {
   const children = await fsDb.getChildren(parentId, projectId)
   const match = children.find((c) => c.type === type && c.name.toLowerCase() === name.toLowerCase())

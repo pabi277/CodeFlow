@@ -11,6 +11,8 @@ import { StatusBar } from './components/StatusBar'
 import { GoToLine } from './components/GoToLine'
 import { WelcomeTour, shouldShowWelcome } from './components/WelcomeTour'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
+import { SymbolSearch, RenameSymbol, ReferencesPanel } from './components/SymbolSearch'
+import { ConflictResolver } from './components/GitHub/ConflictResolver'
 import { Preview } from './components/Editor/Preview'
 import { isHtmlPreview } from './utils/markdown'
 import { useIDEShortcuts } from './hooks/useIDEShortcuts'
@@ -76,6 +78,7 @@ export default function App() {
   const themePreset = useStore((s) => s.settings.themePreset)
   const landscapeSplit = useStore((s) => s.landscapeSplit)
   const importProjectOpen = useStore((s) => s.importProjectOpen)
+  const zenMode = useStore((s) => s.zenMode)
   const viewerOpen = useStore((s) => s.viewerOpen)
   const viewerFile = useStore((s) => {
     const id = s.activeTabId
@@ -115,15 +118,23 @@ export default function App() {
     <div className="bg-app flex h-dvh flex-col overflow-hidden text-ink">
       {activeProjectId ? (
         <>
-          <TopBar />
-          <TabBar />
-          <Breadcrumbs />
-          <div className={`relative flex min-h-0 flex-1 ${landscapeSplit ? 'flex-row' : 'flex-col'}`}>
-            {landscapeSplit && !useStore.getState().drawerOpen && <FileListSidebar />}
+          {!zenMode && <TopBar />}
+          {!zenMode && <TabBar />}
+          {!zenMode && <Breadcrumbs />}
+          <div className={`relative flex min-h-0 flex-1 ${landscapeSplit && !zenMode ? 'flex-row' : 'flex-col'}`}>
+            {landscapeSplit && !zenMode && !useStore.getState().drawerOpen && <FileListSidebar />}
             <EditorWorkspace />
           </div>
-          <StatusBar />
-          <KeyboardToolbar />
+          {!zenMode && <StatusBar />}
+          {!zenMode && <KeyboardToolbar />}
+          {zenMode && (
+            <button
+              onClick={() => useStore.getState().toggleZen()}
+              className="fixed right-3 top-3 z-[30] rounded-full bg-surface/90 px-3 py-1.5 text-[12px] font-semibold text-ink shadow-lg dark:bg-panel/90"
+            >
+              Exit zen
+            </button>
+          )}
         </>
       ) : (
         <Home />
@@ -150,6 +161,10 @@ export default function App() {
       <GoToLine />
       <WelcomeTour />
       <ShortcutsHelp />
+      <SymbolSearch />
+      <RenameSymbol />
+      <ReferencesPanel />
+      <ConflictResolver />
       {viewerOpen && viewerFile && isHtmlPreview(viewerFile.path) && (
         <Preview
           content={viewerFile.content}

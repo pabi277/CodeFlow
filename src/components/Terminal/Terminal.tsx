@@ -5,6 +5,8 @@ import { VscClearAll, VscHistory, VscTerminal, VscError, VscListTree } from 'rea
 import { ProblemsPanel } from '../ProblemsPanel'
 import { OutlinePanel } from '../OutlinePanel'
 import type { BottomPanelTab } from '../../types'
+import { parseAnsi, stripAnsi } from '../../utils/ansi'
+import { extractTerminalLinks, matchProblems } from '../../utils/problemMatchers'
 
 export function TerminalHost() {
   const terminalOpen = useStore((s) => s.terminalOpen)
@@ -123,7 +125,7 @@ function TerminalPanel() {
                 l.kind === 'stderr' ? 'text-red-400' : l.kind === 'system' ? 'text-ink-muted' : 'text-ink'
               }`}>
                 {l.source && <SourceBadge source={l.source} />}
-                <span>{l.text || ' '}</span>
+                <TerminalText text={l.text || ' '} />
               </div>
             ))
           ) : (
@@ -180,6 +182,64 @@ function SourceBadge({ source }: { source: string }) {
   const s = map[source] || { label: source, cls: 'bg-white/10 text-ink-muted' }
   return (
     <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${s.cls}`}>{s.label}</span>
+  )
+}
+
+function TerminalText({ text }: { text: string }) {
+  const goToLocation = useStore((s) => s.goToLocation)
+  const nodeMap = useStore((s) => s.nodeMap)
+  const spans = parseAnsi(text)
+  const plain = stripAnsi(text)
+  const links = extractTerminalLinks(plain)
+  const problems = matchProblems(plain)
+
+  const openPath = (raw: string) => {
+    const m = raw.match(/^(.*?)(?::(\d+))?(?::(\d+))?$/)
+    const path = (m?.[1] || raw).replace(/\\/g, '/')
+    const line = m?.[2] ? Number(m[2]) : 1
+    const col = m?.[3] ? Number(m[3]) : 1
+    const file = Object.values(nodeMap).find((n) => n.type === 'file' && (n.path === path || n.path.endsWith('/' + path) || n.path.endsWith(path)))
+    if (file) void goToLocation(file.id, line, col)
+    else if (problems[0]) {
+      const hit = Object.values(nodeMap).find((n) => n.type === 'file' && n.path.endsWith(problems[0].path))
+      if (hit) void goToLocation(hit.id, problems[0].line, problems[0].col)
+    }
+  }
+
+  if (!links.length && spans.length <= 1 && !spans[0]?.className) {
+    return <span>{text || ' '}</span>
+  }
+
+  if (links.length) {
+    const parts: React.ReactNode[] = []
+    let cursor = 0
+    links.forEach((link, i) => {
+      if (link.start > cursor) parts.push(<span key={`t${i}`}>{plain.slice(cursor, link.start)}</span>)
+      if (link.kind === 'url') {
+        parts.push(
+          <a key={`u${i}`} href={link.value} target="_blank" rel="noopener noreferrer" className="underline text-accent">
+            {link.value}
+          </a>,
+        )
+      } else {
+        parts.push(
+          <button key={`p${i}`} onClick={() => openPath(link.value)} className="underline decoration-dotted text-accent">
+            {link.value}
+          </button>,
+        )
+      }
+      cursor = link.end
+    })
+    if (cursor < plain.length) parts.push(<span key="tail">{plain.slice(cursor)}</span>)
+    return <span>{parts}</span>
+  }
+
+  return (
+    <span>
+      {spans.map((s, i) => (
+        <span key={i} className={s.className}>{s.text}</span>
+      ))}
+    </span>
   )
 }
 

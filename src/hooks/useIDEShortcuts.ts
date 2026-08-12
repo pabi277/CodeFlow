@@ -42,6 +42,40 @@ export function useIDEShortcuts() {
         store.setTerminalOpen(!store.terminalOpen)
         return
       }
+      if (mod && e.key.toLowerCase() === 't' && !e.shiftKey) {
+        e.preventDefault()
+        store.setSymbolSearchOpen(true)
+        return
+      }
+      if (e.key === 'F12' && e.shiftKey) {
+        e.preventDefault()
+        void store.findReferences()
+        return
+      }
+      if (e.key === 'F12') {
+        e.preventDefault()
+        void store.goToDefinition()
+        return
+      }
+      if (e.key === 'F2' && !mod) {
+        if (isTypingTarget(e.target) && !(e.target instanceof HTMLElement && e.target.closest('.cm-editor'))) return
+        e.preventDefault()
+        store.openRename()
+        return
+      }
+      if (mod && e.key.toLowerCase() === 'k' && !e.shiftKey) {
+        // Wait for a follow-up Z for zen (VS Code style Ctrl+K Z)
+        const onZ = (ev: KeyboardEvent) => {
+          window.removeEventListener('keydown', onZ, true)
+          if (ev.key.toLowerCase() === 'z') {
+            ev.preventDefault()
+            store.toggleZen()
+          }
+        }
+        window.addEventListener('keydown', onZ, true)
+        setTimeout(() => window.removeEventListener('keydown', onZ, true), 800)
+        return
+      }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         store.setFindInProject(true)

@@ -100,6 +100,11 @@ export function TopBar() {
           {canHtml && <MenuItem icon={<AiOutlineExport />} label="Open Preview in New Tab" onPress={() => { void openPreviewInNewTab() }} />}
           <MenuItem icon={<VscCode />} label="Format Document" onPress={() => formatActiveDocument()} />
           <MenuItem icon={<AiOutlineSearch />} label="Go to Line" onPress={() => setGoToLineOpen(true)} />
+          <MenuItem icon={<AiOutlineSearch />} label="Go to Symbol" onPress={() => useStore.getState().setSymbolSearchOpen(true)} />
+          <MenuItem icon={<VscCode />} label="Go to Definition" onPress={() => { void useStore.getState().goToDefinition() }} />
+          <MenuItem icon={<VscCode />} label="Find References" onPress={() => { void useStore.getState().findReferences() }} />
+          <MenuItem icon={<VscCode />} label="Rename Symbol" onPress={() => useStore.getState().openRename()} />
+          <MenuItem icon={<AiOutlineEye />} label="Zen Mode" onPress={() => useStore.getState().toggleZen()} />
           <MenuItem icon={<VscError />} label="Show Problems" onPress={() => openBottomPanel('problems')} />
           <MenuItem icon={<AiOutlineSetting />} label="Keyboard Shortcuts" onPress={() => useStore.getState().setShortcutsOpen(true)} />
           <MenuItem icon={<AiOutlineSetting />} label="Settings" onPress={() => setSettingsOpen(true)} />

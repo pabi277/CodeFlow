@@ -1,9 +1,10 @@
 import { EditorSelection } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { undo, redo, addCursorBelow } from '@codemirror/commands'
+import { undo, redo, addCursorBelow, selectParentSyntax } from '@codemirror/commands'
 import { openSearchPanel, selectNextOccurrence } from '@codemirror/search'
 import { startCompletion } from '@codemirror/autocomplete'
 import { expandEmmetInEditor } from '../editor/emmetExpand'
+import { wordAt } from './symbolNav'
 
 // Registry so non-editor components (KeyboardToolbar, CommandPalette) can
 // drive the single mounted CodeMirror instance.
@@ -107,6 +108,19 @@ export function addCursorDown() {
 export function expandEmmet(language = 'html') {
   if (!view) return false
   return expandEmmetInEditor(view, language)
+}
+
+export function expandSmartSelection() {
+  if (!view) return
+  selectParentSyntax(view)
+  view.focus()
+}
+
+export function getWordAtCursor(): string | null {
+  if (!view) return null
+  const pos = view.state.selection.main.head
+  const line = view.state.doc.lineAt(pos)
+  return wordAt(view.state.doc.toString(), line.number, pos - line.from + 1)
 }
 
 export function parseLineCol(input: string): { line: number; col: number } | null {

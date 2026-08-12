@@ -53,6 +53,8 @@ import { OutlinePanel } from '../src/components/OutlinePanel'
 import { GoToLine } from '../src/components/GoToLine'
 import { ShortcutsHelp } from '../src/components/ShortcutsHelp'
 import { WelcomeTour } from '../src/components/WelcomeTour'
+import { SymbolSearch, RenameSymbol, ReferencesPanel } from '../src/components/SymbolSearch'
+import { ConflictResolver } from '../src/components/GitHub/ConflictResolver'
 
 let pass = 0
 let fail = 0
@@ -85,6 +87,10 @@ const COMPONENTS: [string, React.ComponentType][] = [
   ['GoToLine', GoToLine],
   ['ShortcutsHelp', ShortcutsHelp],
   ['WelcomeTour', WelcomeTour],
+  ['SymbolSearch', SymbolSearch],
+  ['RenameSymbol', RenameSymbol],
+  ['ReferencesPanel', ReferencesPanel],
+  ['ConflictResolver', ConflictResolver],
 ]
 
 async function main() {

@@ -139,3 +139,13 @@ export async function updateRef(token: string, owner: string, repo: string, bran
   setToken(token)
   await client.patch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, { sha, force: false })
 }
+
+export async function createRef(token: string, owner: string, repo: string, branch: string, sha: string): Promise<void> {
+  setToken(token)
+  await client.post(`/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha })
+}
+
+export async function deleteRef(token: string, owner: string, repo: string, branch: string): Promise<void> {
+  setToken(token)
+  await client.delete(`/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`)
+}

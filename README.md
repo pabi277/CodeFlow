@@ -91,6 +91,25 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **Find & replace in project** — regex, whole word, replace all | ✅ |
 | **Keyboard shortcuts** — palette, find, go-to-line, drawer, terminal, format | ✅ |
 
+**Phase 6 — VS Code-style editor**
+
+| Area | Status |
+| --- | --- |
+| **Column / box selection** — Shift+Alt+drag | ✅ |
+| **Indent guides + rainbow brackets + sticky scroll** | ✅ |
+| **Smart selection** — Ctrl/Cmd+I expands to the parent syntax node | ✅ |
+| **Smooth cursor** — setting now actually applied | ✅ |
+| **Linked HTML tag rename** — edit an opening tag, the closer follows | ✅ |
+| **Format on save / paste** + **auto-detect indent** | ✅ |
+| **Go to definition / references / rename** — F12, Shift+F12, F2 | ✅ |
+| **Import path completion** — `from './` lists project files | ✅ |
+| **Workspace symbol search** — Ctrl/Cmd+T | ✅ |
+| **Pinned tabs, tab context menu, drag-to-reorder, scroll buttons** | ✅ |
+| **Zen mode** — Ctrl+K Z | ✅ |
+| **Create / delete Git branches** + **conflict resolver** + **side-by-side diff** | ✅ |
+| **ANSI colors + clickable paths** in the terminal | ✅ |
+| **Import a VS Code theme JSON** | ✅ |
+
 ## 🧱 Architecture
 
 ```
@@ -203,6 +222,7 @@ npm run test:diagnostics # problems engine (JSON, brackets, markdown, YAML)
 npm run test:markdown    # preview renderer + XSS URL guards
 npm run test:format      # JSON pretty-print + whitespace cleanup
 npm run test:html-preview # HTML preview inlines local CSS/JS/@import
+npm run test:ide         # indent, ANSI, symbols, imports, theme import
 npm run test             # run all suites
 ```
 

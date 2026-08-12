@@ -31,8 +31,23 @@ const LANG_ICONS: Record<string, IconType> = {
   swift: SiSwift,
   kt: SiKotlin,
   md: AiOutlineFileMarkdown,
+  markdown: AiOutlineFileMarkdown,
   json: VscJson,
   sql: AiOutlineDatabase,
+  vue: VscCode,
+  svg: AiOutlineFile,
+  xml: VscCode,
+  yaml: VscCode,
+  yml: VscCode,
+  toml: VscCode,
+  ini: VscCode,
+  sh: VscCode,
+  bash: VscCode,
+  zsh: VscCode,
+  env: VscCode,
+  lock: VscJson,
+  txt: AiOutlineFile,
+  less: DiCss3,
 }
 
 // Generic file fallback

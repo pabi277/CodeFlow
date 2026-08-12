@@ -20,6 +20,8 @@ export function GitPanel() {
   const openGitLog = useStore((s) => s.openGitLog)
   const openPrs = useStore((s) => s.openPrs)
   const project = useStore((s) => s.projects.find((p) => p.id === s.activeProjectId))
+  const gitConflicts = useStore((s) => s.gitConflicts)
+  const openConflict = useStore((s) => s.openConflict)
   const connected = !!project?.github.connected && !!auth
 
   if (!auth) {
@@ -88,6 +90,23 @@ export function GitPanel() {
         <div className="grid grid-cols-2 gap-2 px-3 pb-1">
           <ActionBtn icon={<VscHistory />} label="History" onPress={openGitLog} />
           <ActionBtn icon={<VscGitPullRequest />} label="Pull Requests" onPress={openPrs} />
+        </div>
+      )}
+
+      {/* conflicts */}
+      {gitConflicts.length > 0 && (
+        <div className="border-b border-ink/10 px-3 py-2 dark:border-white/10">
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-red-400">Conflicts</p>
+          {gitConflicts.map((c) => (
+            <button
+              key={c.fileId}
+              onClick={() => openConflict(c.fileId)}
+              className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-red-300 active:bg-white/5"
+            >
+              <span className="w-5 text-center font-bold">!</span>
+              <span className="min-w-0 flex-1 truncate">{c.path}</span>
+            </button>
+          ))}
         </div>
       )}
 
