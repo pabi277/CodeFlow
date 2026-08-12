@@ -89,13 +89,50 @@ export async function listPullRequests(token: string, owner: string, repo: strin
   return data
 }
 
+/** UTF-8 safe base64 (btoa chokes on non-Latin-1 characters). */
+function toBase64(content: string): string {
+  return btoa(unescape(encodeURIComponent(content)))
+}
+
+/** Encode a repo-relative file path for the contents API (slashes keep meaning). */
+function encodeContentsPath(path: string): string {
+  return path.split('/').map((seg) => encodeURIComponent(seg)).join('/')
+}
+
 export async function createBlob(token: string, owner: string, repo: string, content: string): Promise<string> {
   setToken(token)
   const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
-    content: btoa(unescape(encodeURIComponent(content))),
+    content: toBase64(content),
     encoding: 'base64',
   })
   return data.sha
+}
+
+/**
+ * Create a single file through the contents API. This is the ONLY way to put
+ * the very first commit into a brand-new (empty) repository: the git database
+ * endpoints (blobs / trees / commits / refs) all respond 409 "Git Repository
+ * is empty" until the repository has been initialized by a first commit.
+ */
+export async function createOrUpdateFile(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  content: string,
+  message: string,
+  branch?: string,
+): Promise<{ commitSha: string; blobSha: string }> {
+  setToken(token)
+  const { data } = await client.put<{ content: { sha: string }; commit: { sha: string } }>(
+    `/repos/${owner}/${repo}/contents/${encodeContentsPath(path)}`,
+    {
+      message,
+      content: toBase64(content),
+      ...(branch ? { branch } : {}),
+    },
+  )
+  return { commitSha: data.commit.sha, blobSha: data.content.sha }
 }
 
 /** Create a brand-new repository under the authenticated user. */

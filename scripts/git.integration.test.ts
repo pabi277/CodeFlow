@@ -44,6 +44,7 @@ class FakeGitHub {
   lastCommitParents: string[] | undefined
   createRefCalls = 0
   updateRefCalls = 0
+  createOrUpdateFileCalls = 0
 
   addRepo(owner: string, repo: string, files: Record<string, string>) {
     const key = `${owner}/${repo}`
@@ -87,6 +88,19 @@ class FakeGitHub {
     this.blobs[s] = content
     return s
   }
+  createOrUpdateFile = async (_t: string, owner: string, repo: string, path: string, content: string, message: string, branch = 'main') => {
+    this.createOrUpdateFileCalls++
+    const key = `${owner}/${repo}`
+    if (!this.repos[key]) throw new Error('Not Found')
+    const blobS = sha(content)
+    this.blobs[blobS] = content
+    this.repos[key][path] = content
+    const commitS = sha(message + path)
+    this.commits[commitS] = 'base-tree'
+    this.branchShas[`${key}/${branch}`] = commitS
+    this.emptyRepos.delete(key)
+    return { commitSha: commitS, blobSha: blobS }
+  }
   getRepo = async (_t: string, owner: string, repo: string) => {
     const key = `${owner}/${repo}`
     if (!this.repos[key]) throw new Error('Not Found')
@@ -108,6 +122,7 @@ class FakeGitHub {
     const key = `dev/${opts.name}`
     this.repos[key] = {}
     this.meta[key] = { private: opts.private ?? false, description: opts.description ?? null }
+    this.emptyRepos.add(key)
     return {
       full_name: key,
       name: opts.name,
@@ -221,6 +236,7 @@ async function main() {
     getTree: fake.getTree,
     getFileContent: fake.getFileContent,
     createBlob: fake.createBlob,
+    createOrUpdateFile: fake.createOrUpdateFile,
     getRepo: fake.getRepo,
     createRepo: fake.createRepo,
     getRef: fake.getRef,
@@ -307,14 +323,16 @@ async function main() {
   const srcDir = await fsDb.createNode(blank.id, null, 'src', 'folder', '', { isNew: false })
   const appJs = await fsDb.createNode(blank.id, srcDir.id, 'app.js', 'file', 'console.log(1)\n')
   const updatesBeforeFirstCommit = fake.updateRefCalls
+  const createRefsBeforeFirstCommit = fake.createRefCalls
+  const contentsWritesBeforeFirstCommit = fake.createOrUpdateFileCalls
   const firstSha = await gitService.commitChanges(blank.id, { message: 'first commit', includeIds: [readme.id, appJs.id], push: true })
   ok(typeof firstSha === 'string' && firstSha.length > 0, 'initial commit succeeded on empty repo')
   ok(fake.repos['octocat/blank']['README.md'] === '# blank\n', 'file pushed to previously empty repo')
   ok(fake.repos['octocat/blank']['src/app.js'] === 'console.log(1)\n', 'nested file pushed to previously empty repo')
-  ok(fake.lastTreeBase === null, 'first tree has no base tree')
-  ok(fake.lastCommitParents?.length === 0, 'first commit has no parents')
-  ok(fake.createRefCalls === 1, 'branch ref created exactly once for first commit')
-  ok(fake.updateRefCalls === updatesBeforeFirstCommit, 'first commit does not try to update a missing ref')
+  ok(fake.createOrUpdateFileCalls === contentsWritesBeforeFirstCommit + 1, 'empty repo initialized through the contents API')
+  ok(fake.lastCommitParents?.length === 1, 'remaining files are committed on top of the initialization commit')
+  ok(fake.createRefCalls === createRefsBeforeFirstCommit, 'no ref is created directly against an empty repo')
+  ok(fake.updateRefCalls === updatesBeforeFirstCommit + 1, 'remaining files are pushed by updating the new branch ref')
   ok(fake.branchShas['octocat/blank/main'] != null, 'branch ref points to the first commit')
   ok(!fake.emptyRepos.has('octocat/blank'), 'repo no longer treated as empty after first push')
   const committedReadme = await fsDb.getNode(readme.id)!
@@ -386,8 +404,10 @@ async function main() {
   console.log('\n[16] edge: upload a project with zero files')
   const emptyProj = await makeProject('emptyproj', {})
   const res3 = await gitService.uploadProjectToGitHub(emptyProj.id, { repoName: 'emptyproj' })
-  ok(res3.repo === 'emptyproj', 'zero-file project still uploads (creates repo + empty initial commit)')
-  ok(!!fake.branchShas['dev/emptyproj/main'], 'empty upload still creates the branch ref')
+  ok(res3.repo === 'emptyproj', 'zero-file project still uploads (creates the repo and connects)')
+  const emptyProjFresh = await projectsDb.getProject(emptyProj.id)
+  ok(!!emptyProjFresh?.github.connected && emptyProjFresh.github.repo === 'emptyproj', 'zero-file project connected to the new repo')
+  ok(fake.emptyRepos.has('dev/emptyproj'), 'zero-file repo stays empty until files are added')
 
   console.log('\n[17] edge: upload rejects an already-connected project')
   let rejected2 = false
