@@ -1,21 +1,17 @@
 // GitHub OAuth token management.
 //
-// SECURITY: The code<->token exchange REQUIRES the client secret, which must
-// never ship in frontend code. This app therefore delegates that single step to
-// a small backend proxy — a Vercel Serverless Function at /api/exchange. The
-// frontend only ever holds the access token, which is stored in IndexedDB
-// (never localStorage / cookies / URLs).
+// The OAuth client secret never ships to the browser. The short-lived code is
+// exchanged by the serverless function at /api/exchange, while the resulting
+// access token is kept in IndexedDB by the auth database helpers.
 
 import axios, { type AxiosResponse } from 'axios'
 import { getAuth, setAuth, clearAuth } from '../db/gitHub'
 import * as gh from './githubService'
 import type { GitHubAuth } from '../types'
 
-// OAuth App config (frontend-safe values only — never the client secret)
-// VITE_GITHUB_CLIENT_ID is set in Vercel Dashboard → Settings → Environment Variables.
-// The token proxy is a Vercel Serverless Function at /api/exchange.
 const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
+// OAuth App config (frontend-safe values only — never the client secret).
 export const GITHUB_OAUTH = {
   clientId: import.meta.env?.VITE_GITHUB_CLIENT_ID || '',
   redirectUri: `${origin}/auth/callback`,
@@ -23,48 +19,34 @@ export const GITHUB_OAUTH = {
   tokenProxyUrl: `${origin}/api/exchange`,
 }
 
-/**
- * Recursively pull a human-readable string out of any thrown value (Error,
- * axios payload, Vercel platform error body, plain object, array, string).
- * Returns undefined when nothing useful is found.
- */
+/** Pull a useful message out of Error, Axios, or server JSON payloads. */
 function extractErrorMessage(value: unknown, depth = 0): string | undefined {
   if (typeof value === 'string') return value || undefined
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (!value || typeof value !== 'object' || depth >= 3) return undefined
+
   if (value instanceof Error) return value.message || undefined
-  if (value && typeof value === 'object' && depth < 3) {
-    const record = value as Record<string, unknown>
-    // Common error-payload shapes: { error }, { message },
-    // { error_description }, { error: { code, message } }, ...
-    for (const key of ['error', 'message', 'error_description', 'detail', 'reason']) {
-      const extracted = extractErrorMessage(record[key], depth + 1)
-      if (extracted) return extracted
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const extracted = extractErrorMessage(item, depth + 1)
-        if (extracted) return extracted
-      }
-    }
-    // Platform errors such as Vercel's { code: "FUNCTION_INVOCATION_FAILED" }.
-    if (typeof record['code'] === 'string') return record['code']
+  const record = value as Record<string, unknown>
+  for (const key of ['error', 'message', 'error_description', 'detail', 'reason']) {
+    const message = extractErrorMessage(record[key], depth + 1)
+    if (message) return message
   }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = extractErrorMessage(item, depth + 1)
+      if (message) return message
+    }
+  }
+  if (typeof record.code === 'string') return record.code
   return undefined
 }
 
-/** Extract a user-friendly message from any error thrown during OAuth.
- *  Always returns a string — never an object — so callers can render it
- *  directly (an object message would display as "[object Object]"). */
-export function oauthErrorMessage(err: unknown): string {
-  if (axios.isAxiosError(err)) {
-    // The server's JSON payload (e.g. the proxy's { error: "..." } or Vercel's
-    // { error: { code, message } } body) is more useful than axios's generic
-    // "Request failed with status code NNN".
-    const fromPayload = extractErrorMessage(err.response?.data)
-    if (fromPayload) return fromPayload
-    return err.message || 'GitHub authentication failed. Please try again.'
+/** Always return a string suitable for displaying in a toast. */
+export function oauthErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    return extractErrorMessage(error.response?.data) || error.message || 'GitHub authentication failed. Please try again.'
   }
-  return extractErrorMessage(err) || 'GitHub authentication failed. Please try again.'
+  return extractErrorMessage(error) || 'GitHub authentication failed. Please try again.'
 }
 
 export async function loadStoredAuth(): Promise<GitHubAuth | null> {
@@ -104,28 +86,32 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code')
   const state = params.get('state')
+  const oauthError = params.get('error')
+  if (oauthError) {
+    sessionStorage.removeItem('cf_oauth_state')
+    if (window.history.replaceState) window.history.replaceState({}, '', '/')
+    throw new Error(params.get('error_description') || `GitHub authorization failed: ${oauthError}`)
+  }
   if (!code) return null
 
   const expectedState = sessionStorage.getItem('cf_oauth_state')
-  if (state && expectedState && state !== expectedState) {
+  if (!state || !expectedState || state !== expectedState) {
     throw new Error('OAuth state mismatch — please try again.')
   }
 
-  let res: AxiosResponse<{ access_token?: string; error?: string }>
+  let response: AxiosResponse<{ access_token?: string; error?: string }>
   try {
-    res = await axios.post<{ access_token?: string; error?: string }>(
+    response = await axios.post<{ access_token?: string; error?: string }>(
       GITHUB_OAUTH.tokenProxyUrl,
       { code, redirect_uri: GITHUB_OAUTH.redirectUri },
     )
-  } catch (err) {
-    // Surface the proxy's JSON error (e.g. "bad_verification_code") instead of
-    // axios's generic "Request failed with status code 500".
-    throw new Error(oauthErrorMessage(err))
+  } catch (error) {
+    throw new Error(oauthErrorMessage(error))
   }
 
-  const token = res.data.access_token
+  const token = response.data.access_token
   if (!token) {
-    throw new Error(res.data.error || 'GitHub authentication failed. Please try again.')
+    throw new Error(response.data.error || 'GitHub authentication failed. Please try again.')
   }
 
   const user = await gh.getCurrentUser(token)

@@ -149,7 +149,8 @@ src/
 
 - **JavaScript / TypeScript** run **locally** in a sandboxed `Function` capturing `console` — no API key needed.
 - **Other languages** require a **Judge0 CE API key** (RapidAPI). Paste it in **Settings → Execution**. Without a key, those languages show a friendly mock so the flow still works.
-- Stdin is provided via the **Input** toggle in the terminal panel.
+- Programs use **batch input**: open **Program input** in the terminal, enter all values before pressing Run (one value per line), and then run the file. CodeFlow does not wait for typing after execution starts.
+- JavaScript/TypeScript also support `input()`, `readline()`, and `prompt()` using the values entered in Program input.
 
 ## 🚀 Getting started
 
@@ -165,38 +166,27 @@ npm run test     # run the full test suite
 
 ## 🔐 Setting up GitHub OAuth (Phase 2)
 
-The GitHub OAuth **client secret** must never ship in frontend code, so the app
-delegates the code→token exchange to a small backend proxy. On Vercel this is
-the serverless function at [`/api/exchange`](./api/exchange.js); a Cloudflare
-Worker alternative lives in [`/worker`](./worker).
+The GitHub OAuth **client secret** must never ship in frontend code. CodeFlow's
+Vercel deployment uses the serverless function in [`/api/exchange.js`](./api/exchange.js)
+to exchange the temporary code for a token.
 
 1. Register a GitHub **OAuth App** (Settings → Developer settings → OAuth Apps).
    Set the callback URL to `https://your-app.example.com/auth/callback`.
-2. On Vercel, set these environment variables (Dashboard → Settings →
-   Environment Variables):
-   - `VITE_GITHUB_CLIENT_ID` → your OAuth App's Client ID (frontend build)
-   - `GITHUB_CLIENT_ID` → your OAuth App's Client ID (serverless function)
-   - `GITHUB_CLIENT_SECRET` → your OAuth App's Client secret (serverless
-     function only — never expose it in the frontend)
-3. `vercel.json` already rewrites `/api/*` to the serverless functions and
-   `/auth/callback` to the SPA, so no extra routing config is needed.
-4. Rebuild. Users can now tap **Connect GitHub** in the Git tab.
+2. Add these environment variables in Vercel (Preview and Production as needed):
+   - `VITE_GITHUB_CLIENT_ID` — public OAuth App client ID, used by the browser build
+   - `GITHUB_CLIENT_ID` — the same client ID, used by `/api/exchange`
+   - `GITHUB_CLIENT_SECRET` — OAuth App secret, server-only; never use a `VITE_` prefix
+3. Redeploy. Users can now tap **Connect GitHub** in the Git tab.
 
-### Testing OAuth locally (no merge / no deploy needed)
+A Cloudflare Worker alternative remains available in [`/worker`](./worker) for
+self-hosted deployments; do not configure both proxies at the same time.
 
-GitHub allows **loopback redirect URIs** without registering them, so you can
-run the full real flow against your existing OAuth App:
+### Testing OAuth locally
 
-1. Copy `.env.example` → `.env.local` and fill in:
-   `VITE_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
-   (get the secret from Vercel Dashboard → Settings → Environment Variables).
-   `.env.local` is gitignored — never commit the secret.
-2. `npm run dev` — the dev server serves `POST /api/exchange` locally via
-   `vite.config.ts` (same handler as the Vercel function).
-3. Open `http://localhost:5173` → Git tab → **Connect GitHub** → authorize.
-   GitHub redirects to `http://localhost:5173/auth/callback?code=...`
-   (loopback URLs are always accepted). Success shows a "Connected to GitHub"
-   toast; failures show an error toast with the server's message.
+Copy `.env.example` to `.env.local`, fill in the three OAuth variables, and run
+`npm run dev`. The Vite dev server uses the same `/api/exchange.js` handler for
+local testing. Open the Git tab and choose **Connect GitHub**; callback errors
+are shown in a toast instead of being swallowed. Never commit `.env.local`.
 
 ## 🖥️ Termux Integration
 

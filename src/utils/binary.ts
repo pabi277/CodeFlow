@@ -10,7 +10,7 @@ export function isBinaryPath(path: string): boolean {
 }
 
 export function isDataUrl(content: string): boolean {
-  return /^data:[^;]+;base64,/i.test(content.slice(0, 80))
+  return /^data:[^,]+;base64,/i.test(content.slice(0, 120))
 }
 
 export function mimeForPath(path: string): string {
@@ -26,6 +26,29 @@ export function mimeForPath(path: string): string {
     avif: 'image/avif',
     svg: 'image/svg+xml',
     pdf: 'application/pdf',
+    html: 'text/html; charset=utf-8',
+    htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    mjs: 'text/javascript; charset=utf-8',
+    ts: 'text/plain; charset=utf-8',
+    tsx: 'text/plain; charset=utf-8',
+    jsx: 'text/javascript; charset=utf-8',
+    py: 'text/x-python; charset=utf-8',
+    c: 'text/x-c; charset=utf-8',
+    h: 'text/x-c; charset=utf-8',
+    cpp: 'text/x-c++; charset=utf-8',
+    cc: 'text/x-c++; charset=utf-8',
+    hpp: 'text/x-c++; charset=utf-8',
+    java: 'text/x-java-source; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    md: 'text/markdown; charset=utf-8',
+    markdown: 'text/markdown; charset=utf-8',
+    xml: 'application/xml; charset=utf-8',
+    yaml: 'text/yaml; charset=utf-8',
+    yml: 'text/yaml; charset=utf-8',
+    sh: 'text/x-shellscript; charset=utf-8',
+    sql: 'application/sql; charset=utf-8',
   }
   return map[ext] || 'application/octet-stream'
 }

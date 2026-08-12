@@ -2,11 +2,12 @@
  * Covers: callback auth surviving the final set() (auth-overwrite bug),
  * error toasts instead of silent swallowing, the ?code= query fallback,
  * hardened oauthErrorMessage (never renders "[object Object]"), and the
- * api/exchange.js ESM export format (export default — not module.exports).
+ * api/exchange.js serverless handler loads correctly from the local proxy.
  * Run with: npx tsx scripts/oauth.test.ts */
 import 'fake-indexeddb/auto'
 import { JSDOM } from 'jsdom'
 import axios from 'axios'
+import { db } from '../src/db/db'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost:5173/auth/callback?code=testcode123&state=teststate' })
 const g = global as any
@@ -36,6 +37,7 @@ function check(name: string, cond: boolean, extra = '') {
 const fakeUser = { login: 'octocat', name: 'Octo Cat', avatar_url: 'https://example.com/avatar.png' }
 axios.create = (() => ({
   defaults: { headers: { common: {} } },
+  interceptors: { response: { use: () => undefined } },
   get: async (url: string) => {
     if (url === '/user') return { data: fakeUser }
     throw new Error('unexpected client.get ' + url)
@@ -62,6 +64,8 @@ async function main() {
 
   console.log('\n[2] bootstrap with failing exchange -> toast (Bug 3)')
   dom.window.history.replaceState({}, '', '/auth/callback?code=testcode123&state=teststate')
+  dom.window.sessionStorage.setItem('cf_oauth_state', 'teststate')
+  await db.gitHubAuth.clear()
   useStore.setState({ auth: null, booted: false, toasts: [] })
   exchangeBehavior = () => {
     const e: any = new Error('Request failed with status code 400')
@@ -121,9 +125,9 @@ async function main() {
   }
   check('[5] every result is a string (no [object Object])', allStrings)
 
-  console.log('\n[6] api/exchange.js is a valid ES module (export default)')
+  console.log('\n[6] api/exchange.js serverless handler loads correctly')
   const { default: exchangeHandler } = await import('../api/exchange.js')
-  check('[6] handler is a function (module loads as ESM)', typeof exchangeHandler === 'function')
+  check('[6] handler is a function (CommonJS handler loads via import)', typeof exchangeHandler === 'function')
   function makeRes() {
     const r: any = { statusCode: 0, headers: {} as Record<string, string>, ended: false, body: undefined }
     r.setHeader = (k: string, v: string) => { r.headers[k] = v }

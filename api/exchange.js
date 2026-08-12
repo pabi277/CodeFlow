@@ -1,49 +1,48 @@
 /**
  * Vercel Serverless Function — GitHub OAuth token exchange proxy.
  *
- * Exchanges the temporary authorization `code` for an access token.
- * The client secret lives ONLY here as an environment variable.
- *
- * NOTE: The repo's root package.json has `"type": "module"`, so this file is
- * an ES module — the handler MUST use `export default`. Using CommonJS
- * (`module.exports`) crashes at invocation with
- * "module is not defined in ES module scope" (Vercel
- * FUNCTION_INVOCATION_FAILED → 500).
- *
- * Set these in Vercel Dashboard → Settings → Environment Variables:
- *   GITHUB_CLIENT_ID
- *   GITHUB_CLIENT_SECRET
+ * The GitHub client secret is kept in Vercel environment variables and never
+ * sent to the browser. Configure GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in
+ * the Vercel project settings.
  */
-
-export default async function handler(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return res.status(200).end()
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { code, redirect_uri } = req.body || {};
+  let body = req.body || {}
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      body = {}
+    }
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) body = {}
 
+  const { code, redirect_uri: redirectUri } = body
   if (!code) {
-    return res.status(400).json({ error: 'Missing code' });
+    return res.status(400).json({ error: 'Missing code' })
   }
 
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-
+  const clientId = process.env.GITHUB_CLIENT_ID
+  const clientSecret = process.env.GITHUB_CLIENT_SECRET
   if (!clientId || !clientSecret) {
-    return res.status(500).json({ error: 'OAuth proxy not configured (missing credentials).' });
+    return res.status(500).json({ error: 'OAuth proxy not configured (missing credentials).' })
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
   try {
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -53,21 +52,23 @@ export default async function handler(req, res) {
         client_id: clientId,
         client_secret: clientSecret,
         code,
-        redirect_uri: redirect_uri || undefined,
+        redirect_uri: redirectUri || undefined,
       }),
-    });
-
-    const data = await tokenRes.json();
+      signal: controller.signal,
+    })
+    const data = await tokenResponse.json().catch(() => ({}))
 
     if (data.access_token) {
-      return res.status(200).json({ access_token: data.access_token });
+      return res.status(200).json({ access_token: data.access_token })
     }
 
     return res.status(400).json({
       error: data.error_description || data.error || 'Token exchange failed',
-    });
-  } catch (err) {
-    console.error('Token exchange error:', err);
-    return res.status(500).json({ error: 'Token exchange failed' });
+    })
+  } catch (error) {
+    console.error('Token exchange error:', error)
+    return res.status(502).json({ error: 'GitHub token exchange timed out or failed.' })
+  } finally {
+    clearTimeout(timeout)
   }
 }

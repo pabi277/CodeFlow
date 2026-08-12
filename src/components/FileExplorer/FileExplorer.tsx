@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { MdExpandMore } from 'react-icons/md'
 import { AiOutlineSearch, AiOutlinePlus } from 'react-icons/ai'
+import { HiDotsVertical } from 'react-icons/hi'
 import type { FileNode } from '../../types'
 import { FileIcon } from '../../utils/getFileIcon'
 import { BottomSheet } from '../Shared/BottomSheet'
@@ -67,9 +68,17 @@ export function FileExplorer() {
         {query.trim() ? (
           searchResults.length ? (
             searchResults.map((n) => (
-              <div key={n.id} className="flex items-center gap-2 px-4 py-1.5 active:bg-white/5" onClick={() => openFile(n.id)}>
-                <FileIcon name={n.name} type="file" size={16} className="text-ink-muted" />
-                <span className="text-[13px] text-ink">{n.path}</span>
+              <div key={n.id} className="flex min-w-0 items-center gap-2 px-4 py-1.5 active:bg-white/5" onClick={() => openFile(n.id)}>
+                <FileIcon name={n.name} type="file" size={16} />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{n.path}</span>
+                <button
+                  type="button"
+                  aria-label={`Actions for ${n.name}`}
+                  onClick={(e) => { e.stopPropagation(); openMenu(n.id, e.clientX, e.clientY) }}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-muted opacity-60 hover:bg-white/5 hover:opacity-100"
+                >
+                  <HiDotsVertical size={18} />
+                </button>
               </div>
             ))
           ) : (
@@ -93,7 +102,7 @@ export function FileExplorer() {
     return (
       <div>
         <div
-          className="mx-1 flex items-center gap-1 rounded py-1.5 pr-2 active:bg-accent/10"
+          className="mx-1 flex min-w-0 items-center gap-1 rounded py-1.5 pr-2 active:bg-accent/10"
           style={{ paddingLeft: depth * 18 + 6 }}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData('text/node-id', nodeId); e.dataTransfer.effectAllowed = 'move' }}
@@ -115,7 +124,15 @@ export function FileExplorer() {
           <span className="mr-1.5 shrink-0">
             <FileIcon name={node.name} type={node.type} isOpen={isOpen} size={18} />
           </span>
-          <span className={`truncate text-[13.5px] ${nameColor(node)}`}>{node.name}</span>
+          <span className={`min-w-0 flex-1 truncate text-[13.5px] ${nameColor(node)}`}>{node.name}</span>
+          <button
+            type="button"
+            aria-label={`Actions for ${node.name}`}
+            onClick={(e) => { e.stopPropagation(); openMenu(nodeId, e.clientX, e.clientY) }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-muted opacity-60 hover:bg-white/5 hover:opacity-100"
+          >
+            <HiDotsVertical size={18} />
+          </button>
         </div>
         {isFolder && isOpen && node.childIds.map((cid) => <TreeNode key={cid} nodeId={cid} depth={depth + 1} />)}
       </div>

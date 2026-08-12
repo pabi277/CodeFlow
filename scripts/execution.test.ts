@@ -24,6 +24,12 @@ async function main() {
   ok(js.source === 'local', `JS uses local runner (got ${js.source})`)
   ok(js.stdout.includes('hi 4'), 'JS stdout correct')
 
+  console.log('\n[batch stdin helpers — JavaScript]')
+  const jsInput = await executeCode('const name = input(); console.log(`Hi, ${name}`)', 'input.js', 'Ada', opts)
+  ok(jsInput.source === 'local' && jsInput.stdout === 'Hi, Ada', 'input() reads the first supplied line')
+  const jsPrompt = await executeCode('console.log(prompt("Name?"))', 'prompt.js', 'Bea', opts)
+  ok(jsPrompt.stdout === 'Bea', 'prompt() uses supplied input instead of blocking the browser')
+
   console.log('\n[Python -> no bridge, no key -> mock]')
   const py = await executeCode('print("x")', 'main.py', '', opts)
   ok(py.source === 'mock', `Python falls back to mock (got ${py.source})`)

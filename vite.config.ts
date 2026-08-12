@@ -76,11 +76,12 @@ function oauthExchangeProxy(): Plugin {
           let parsed: Record<string, unknown> = {}
           try { parsed = body ? JSON.parse(body) : {} } catch { parsed = {} }
           try {
-            // The root package.json is "type": "module", so api/exchange.js is
-            // an ES module whose handler is the default export — load it with a
-            // native dynamic import (cache-busted so edits are picked up).
+            // api/package.json marks the serverless handler as CommonJS even
+            // though the root package is ESM. Native dynamic import exposes
+            // module.exports as `default`; cache-bust it so edits are picked up.
             const mod = await import(/* @vite-ignore */ `${pathToFileURL(exchangePath).href}?t=${Date.now()}`)
-            const handler = (mod as { default: (req: unknown, res: OAuthRes) => void }).default
+            const handler = (mod as { default?: (req: unknown, res: OAuthRes) => void }).default
+            if (!handler) throw new Error('OAuth exchange handler was not found')
             // Node's http.ServerResponse lacks res.status()/res.json().
             const resAdapter = new Proxy(res, {
               get(target, prop) {

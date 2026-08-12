@@ -21,6 +21,8 @@ export interface FileNode {
   gitSha: string | null
   /** Content as of last Git sync (clone/pull/commit) — used for modification detection & diff */
   originalContent: string
+  /** Path as of the last Git sync; used to commit local renames/moves correctly. */
+  originalPath?: string | null
   /** New file created locally, not present in the clone */
   isNew: boolean
   /** File deleted locally but still tracked in Git (kept as tombstone) */

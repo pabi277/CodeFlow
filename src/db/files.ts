@@ -52,6 +52,7 @@ export interface CreateNodeOptions {
   isNew?: boolean
   gitSha?: string | null
   originalContent?: string
+  originalPath?: string | null
 }
 
 export async function createNode(
@@ -98,6 +99,7 @@ export async function createNode(
     isGitModified: false,
     gitSha: options.gitSha ?? null,
     originalContent: options.originalContent ?? (type === 'file' ? content : ''),
+    originalPath: options.originalPath ?? (type === 'file' && options.isNew === false ? path : null),
     isNew: options.isNew ?? (type === 'file'),
     isDeleted: false,
     projectId,
@@ -145,8 +147,18 @@ export async function renameNode(id: string, newName: string): Promise<void> {
   if (!node) throw new FileSystemError('Item not found')
   const err = validateName(newName)
   if (err) throw new FileSystemError(err)
+  if (newName === node.name) return
   const path = await computePath(node.projectId, node.parentId, newName)
-  await db.files.update(id, { name: newName, path, modifiedAt: Date.now() })
+  const tracked = node.type === 'file' && !!node.gitSha && !node.isNew
+  const originalPath = tracked ? (node.originalPath || node.path) : null
+  await db.files.update(id, {
+    name: newName,
+    path,
+    modifiedAt: Date.now(),
+    ...(tracked
+      ? { originalPath, isGitModified: path !== originalPath || node.content !== node.originalContent }
+      : {}),
+  })
   // update descendant paths for folders
   if (node.type === 'folder') {
     await rewriteDescendantPaths(node.id, path)
@@ -160,7 +172,14 @@ async function rewriteDescendantPaths(folderId: string, newFolderPath: string): 
     const child = await db.files.get(cid)
     if (!child) continue
     const newChildPath = join(newFolderPath, child.name)
-    await db.files.update(child.id, { path: newChildPath })
+    const tracked = child.type === 'file' && !!child.gitSha && !child.isNew
+    const originalPath = tracked ? (child.originalPath || child.path) : null
+    await db.files.update(child.id, {
+      path: newChildPath,
+      ...(tracked
+        ? { originalPath, isGitModified: newChildPath !== originalPath || child.content !== child.originalContent }
+        : {}),
+    })
     if (child.type === 'folder') await rewriteDescendantPaths(child.id, newChildPath)
   }
 }
@@ -225,7 +244,16 @@ export async function moveNode(id: string, newParentId: string): Promise<void> {
   dest.modifiedAt = Date.now()
   await db.files.put(dest)
   const path = await computePath(node.projectId, newParentId, node.name)
-  await db.files.update(id, { parentId: newParentId, path, modifiedAt: Date.now() })
+  const tracked = node.type === 'file' && !!node.gitSha && !node.isNew
+  const originalPath = tracked ? (node.originalPath || node.path) : null
+  await db.files.update(id, {
+    parentId: newParentId,
+    path,
+    modifiedAt: Date.now(),
+    ...(tracked
+      ? { originalPath, isGitModified: path !== originalPath || node.content !== node.originalContent }
+      : {}),
+  })
   if (node.type === 'folder') await rewriteDescendantPaths(id, path)
 }
 
@@ -233,11 +261,29 @@ export async function getNode(id: string): Promise<FileNode | undefined> {
   return db.files.get(id)
 }
 
+/** Restore a tombstoned file into its parent's child list. */
+export async function restoreDeletedFile(id: string): Promise<void> {
+  const node = await db.files.get(id)
+  if (!node || !node.isDeleted) return
+  if (node.parentId) {
+    const parent = await db.files.get(node.parentId)
+    if (parent && !parent.childIds.includes(id)) {
+      parent.childIds = [...parent.childIds, id]
+      await db.files.put(parent)
+    }
+  }
+  await db.files.update(id, { isDeleted: false, modifiedAt: Date.now() })
+}
+
 /** Update a file's content as part of a git operation (clone/pull/commit). */
 export async function syncGitFile(id: string, content: string, sha: string): Promise<void> {
+  const node = await db.files.get(id)
+  if (!node) return
+  await restoreDeletedFile(id)
   await db.files.update(id, {
     content,
     originalContent: content,
+    originalPath: node.path,
     gitSha: sha,
     isGitModified: false,
     isNew: false,
@@ -261,6 +307,15 @@ export async function markTrackedDeleted(id: string): Promise<void> {
 
 /** Fully remove a file (used for untracked deletions or after committing a deletion). */
 export async function hardDelete(id: string): Promise<void> {
+  const node = await db.files.get(id)
+  if (!node) return
+  if (node.parentId) {
+    const parent = await db.files.get(node.parentId)
+    if (parent) {
+      parent.childIds = parent.childIds.filter((childId) => childId !== id)
+      await db.files.put(parent)
+    }
+  }
   await db.files.delete(id)
 }
 

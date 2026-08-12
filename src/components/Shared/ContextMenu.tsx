@@ -2,8 +2,11 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { BottomSheet } from './BottomSheet'
 import { NameModal } from './NameModal'
-import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
+import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiDownload, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
 import { AiOutlineFile } from 'react-icons/ai'
+import type { FileNode } from '../../types'
+import { isDataUrl, mimeForPath } from '../../utils/binary'
+import { buildFolderZip, downloadFolderZip } from '../../utils/zip'
 
 export function ContextMenu() {
   const ctx = useStore((s) => s.contextMenu)
@@ -54,12 +57,64 @@ export function ContextMenu() {
   }
 
   const share = async () => {
-    if (node && navigator.share) {
-      try { await navigator.share({ title: node.name, text: node.content }) } catch {}
-    } else {
-      copyPath()
+    if (!node) return
+    try {
+      const blob = await blobForNode(node)
+      const attempt = await tryShareFile(node.name, blob, node.content)
+      if (attempt === 'shared') {
+        showToast(`Shared ${node.name}`, 'success')
+        return
+      }
+      if (attempt === 'cancelled') return
+
+      const copied = await copyText(node.content)
+      if (copied) {
+        showToast('System sharing is unavailable — file content copied as text', 'info')
+      } else {
+        await saveBlob(blob, node.name)
+        showToast(`Downloaded ${node.name} so you can share it`, 'info')
+      }
+    } catch (error) {
+      showToast((error as Error).message || 'Could not share the file', 'error')
     }
-    close()
+  }
+
+  const shareFolder = async () => {
+    if (!node || node.type !== 'folder') return
+    try {
+      const blob = await buildFolderZip(node.id, nodeMap)
+      const zipName = `${node.name}.zip`
+      const attempt = await tryShareFile(zipName, blob)
+      if (attempt === 'shared') {
+        showToast(`Shared ${zipName}`, 'success')
+      } else if (attempt !== 'cancelled') {
+        await saveBlob(blob, zipName)
+        showToast(`Downloaded ${zipName} so you can share it`, 'info')
+      }
+    } catch (error) {
+      showToast((error as Error).message || 'Could not share the folder', 'error')
+    }
+  }
+
+  const download = async () => {
+    if (!node) return
+    try {
+      const blob = await blobForNode(node)
+      await saveBlob(blob, node.name)
+      showToast(`Downloaded ${node.name}`, 'success')
+    } catch (err) {
+      showToast((err as Error).message || 'Could not download the file', 'error')
+    }
+  }
+
+  const downloadFolder = async () => {
+    if (!node || node.type !== 'folder') return
+    try {
+      await downloadFolderZip(node.id, nodeMap, node.name)
+      showToast(`Downloaded ${node.name}.zip`, 'success')
+    } catch (error) {
+      showToast((error as Error).message || 'Could not download the folder', 'error')
+    }
   }
 
   const Item = ({ icon, label, onPress, danger }: { icon: React.ReactNode; label: string; onPress: () => void; danger?: boolean }) => (
@@ -96,7 +151,10 @@ export function ContextMenu() {
             )}
             <Item icon={<FiEdit3 />} label="Rename" onPress={() => setRenamingId(node.id)} />
             <Item icon={<FiCopy />} label="Copy Path" onPress={copyPath} />
-            {node.type === 'file' && <Item icon={<FiShare2 />} label="Share" onPress={share} />}
+            {node.type === 'file' && <Item icon={<FiShare2 />} label="Share file" onPress={share} />}
+            {node.type === 'file' && <Item icon={<FiDownload />} label="Download file" onPress={download} />}
+            {node.type === 'folder' && <Item icon={<FiShare2 />} label="Share folder as ZIP" onPress={shareFolder} />}
+            {node.type === 'folder' && <Item icon={<FiDownload />} label="Download folder as ZIP" onPress={downloadFolder} />}
             <Item icon={<FiTrash2 />} label={node.type === 'file' ? 'Delete' : 'Delete Folder'} onPress={handleDelete} danger />
           </div>
         </BottomSheet>
@@ -124,6 +182,79 @@ export function ContextMenu() {
       )}
     </>
   )
+}
+
+type ShareAttempt = 'shared' | 'cancelled' | 'unsupported'
+
+async function tryShareFile(name: string, blob: Blob, text?: string): Promise<ShareAttempt> {
+  if (typeof navigator.share !== 'function') return 'unsupported'
+
+  const file = new File([blob], name, { type: blob.type || 'application/octet-stream' })
+  const canTryFile = typeof navigator.canShare !== 'function' || navigator.canShare({ files: [file] })
+  if (canTryFile) {
+    try {
+      await navigator.share({ title: name, files: [file] })
+      return 'shared'
+    } catch (error) {
+      if (isShareCancelled(error)) return 'cancelled'
+    }
+  }
+
+  if (text !== undefined) {
+    try {
+      await navigator.share({ title: name, text })
+      return 'shared'
+    } catch (error) {
+      if (isShareCancelled(error)) return 'cancelled'
+    }
+  }
+  return 'unsupported'
+}
+
+async function saveBlob(blob: Blob, name: string): Promise<void> {
+  const { saveAs } = await import('file-saver')
+  saveAs(blob, name)
+}
+
+function isShareCancelled(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'name' in error && error.name === 'AbortError'
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Try the legacy copy path below.
+  }
+
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const copied = document.execCommand('copy')
+    area.remove()
+    return copied
+  } catch {
+    return false
+  }
+}
+
+async function blobForNode(node: FileNode): Promise<Blob> {
+  if (isDataUrl(node.content)) {
+    try {
+      return await (await fetch(node.content)).blob()
+    } catch {
+      // Fall through to a text blob if a data URL cannot be decoded.
+    }
+  }
+  return new Blob([node.content], { type: mimeForPath(node.path) })
 }
 
 function MoveSheet({ nodeId, onClose, onPick }: { nodeId: string; onClose: () => void; onPick: (id: string) => void }) {
