@@ -15,7 +15,19 @@ import type {
   GitHubBranch,
   GitHubCommit,
   GitHubPullRequest,
+  GitHubTreeResponse,
 } from '../types'
+
+/** True when the GitHub API says the repository has no commits yet (a brand-new repo). */
+function isEmptyRepoError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const e = err as { response?: { status?: number; data?: { message?: string } } }
+  return (
+    e.response?.status === 409 &&
+    typeof e.response?.data?.message === 'string' &&
+    e.response.data.message.toLowerCase().includes('git repository is empty')
+  )
+}
 
 async function requireToken(): Promise<string> {
   const auth = await getAuth()
@@ -58,8 +70,15 @@ export async function cloneRepository(
   const branch = repo.default_branch
 
   onProgress?.({ label: 'Fetching repository structure…', done: 0, total: 0 })
-  const treeRes = await gh.getTree(token, owner, repo.name, branch)
-  const blobs = treeRes.tree.filter((t) => t.type === 'blob')
+  let treeRes: GitHubTreeResponse | null = null
+  try {
+    treeRes = await gh.getTree(token, owner, repo.name, branch)
+  } catch (err) {
+    if (!isEmptyRepoError(err)) throw err
+    // Brand-new repository with no commits — clone it as an empty project.
+    onProgress?.({ label: 'Repository is empty — creating empty project…', done: 0, total: 0 })
+  }
+  const blobs = (treeRes?.tree ?? []).filter((t) => t.type === 'blob')
   onProgress?.({ label: 'Creating project…', done: 0, total: blobs.length })
 
   // create project + root folder
@@ -71,7 +90,7 @@ export async function cloneRepository(
   const pathToId: Record<string, string> = { '/': root.id }
 
   // folders first, shallowest first
-  const trees = treeRes.tree
+  const trees = (treeRes?.tree ?? [])
     .filter((t) => t.type === 'tree' && t.path)
     .sort((x, y) => x.path.split('/').length - y.path.split('/').length)
   for (const t of trees) {
@@ -134,14 +153,27 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
     }
   }
 
-  // 2-6. ref -> commit -> tree -> new tree -> commit -> update ref
-  const ref = await gh.getRef(token, owner, repo, branch)
-  const baseSha = ref.object.sha
-  const baseCommit = await gh.getCommit(token, owner, repo, baseSha)
-  const treeSha = await gh.createTree(token, owner, repo, baseCommit.tree.sha, entries)
-  const newCommit = await gh.createCommit(token, owner, repo, opts.message, treeSha, [baseSha])
+  // 2-6. ref -> commit -> tree -> new tree -> commit -> update/create ref
+  let baseSha: string | null = null
+  let baseTree: string | null = null
+  try {
+    const ref = await gh.getRef(token, owner, repo, branch)
+    baseSha = ref.object.sha
+    const baseCommit = await gh.getCommit(token, owner, repo, baseSha)
+    baseTree = baseCommit.tree.sha
+  } catch (err) {
+    if (!isEmptyRepoError(err)) throw err
+    // Brand-new repository with no commits — this push creates the first commit,
+    // so there is no base ref/tree and the branch ref must be created, not updated.
+  }
+  const treeSha = await gh.createTree(token, owner, repo, baseTree, entries)
+  const newCommit = await gh.createCommit(token, owner, repo, opts.message, treeSha, baseSha ? [baseSha] : [])
   if (opts.push) {
-    await gh.updateRef(token, owner, repo, branch, newCommit.sha)
+    if (baseSha) {
+      await gh.updateRef(token, owner, repo, branch, newCommit.sha)
+    } else {
+      await gh.createRef(token, owner, repo, branch, newCommit.sha)
+    }
   }
 
   // update local bookkeeping
@@ -176,7 +208,15 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
   const { owner, repo, branch } = project.github
 
   onProgress?.({ label: 'Fetching remote changes…', done: 0, total: 0 })
-  const treeRes = await gh.getTree(token, owner, repo, branch)
+  let treeRes: GitHubTreeResponse | null = null
+  try {
+    treeRes = await gh.getTree(token, owner, repo, branch)
+  } catch (err) {
+    if (!isEmptyRepoError(err)) throw err
+    // Brand-new repository with no commits — nothing to pull yet.
+    await projectsDb.updateProjectGithub(projectId, { lastSyncAt: Date.now() })
+    return { updated: 0, created: 0, conflicts: [], conflictDetails: [], deletedRemote: [] }
+  }
   const blobs = treeRes.tree.filter((t) => t.type === 'blob')
 
   const localNodes = (await fsDb.listAllInProject(projectId)).filter((n) => n.type === 'file' && !n.isDeleted)
@@ -319,7 +359,12 @@ export async function getCommitLog(projectId: string, count = 30): Promise<GitHu
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)
   if (!project?.github.connected || !project.github.owner || !project.github.repo || !project.github.branch) return []
-  return gh.listCommits(token, project.github.owner, project.github.repo, project.github.branch, count)
+  try {
+    return await gh.listCommits(token, project.github.owner, project.github.repo, project.github.branch, count)
+  } catch (err) {
+    if (isEmptyRepoError(err)) return []
+    throw err
+  }
 }
 
 /** List open pull requests (read-only) for the connected project. */
