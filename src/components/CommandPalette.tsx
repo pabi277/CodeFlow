@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { openFind } from '../utils/editorApi'
+import { openFind, expandEmmet, selectNextMatch } from '../utils/editorApi'
+import { detectLanguage } from '../utils/language'
 import { collectPluginCommands } from '../plugins/registry'
 import { AiOutlineSearch, AiOutlineFile } from 'react-icons/ai'
 import { VscSymbolMethod } from 'react-icons/vsc'
@@ -102,6 +103,8 @@ export function CommandPalette() {
     { label: 'Preview: Preview Only', run: () => { setPreviewMode('preview'); setOpen(false) } },
     { label: 'Go to Line', run: () => { setGoToLineOpen(true); setOpen(false) } },
     { label: 'Format Document', run: () => { formatActiveDocument(); setOpen(false) } },
+    { label: 'Expand Emmet Abbreviation', run: () => { expandEmmet(detectLanguage(useStore.getState().nodeMap[useStore.getState().activeTabId || '']?.path || '')); setOpen(false) } },
+    { label: 'Add Next Occurrence', run: () => { selectNextMatch(); setOpen(false) } },
     { label: 'Show Problems', run: () => { openBottomPanel('problems'); setOpen(false) } },
     { label: 'Show Outline', run: () => { openBottomPanel('outline'); setOpen(false) } },
     { label: 'Show Terminal', run: () => { openBottomPanel('terminal'); setOpen(false) } },

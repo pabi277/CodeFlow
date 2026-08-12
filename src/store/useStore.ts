@@ -36,6 +36,7 @@ import { DEFAULT_SETTINGS } from '../config/defaults'
 import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
+import { replaceInText } from '../utils/projectSearch'
 import { goToPosition, replaceDocument } from '../utils/editorApi'
 import type { GitStatusItem } from '../services/gitService'
 
@@ -172,6 +173,7 @@ interface StoreState {
   clearPendingGoTo: () => void
   revealInExplorer: (nodeId: string) => void
   formatActiveDocument: () => void
+  replaceInProject: (query: string, replacement: string, opts?: { matchCase?: boolean; regex?: boolean; wholeWord?: boolean }) => Promise<number>
   clearHistory: () => Promise<void>
   setViewerOpen: (v: boolean) => void
   setShortcutsOpen: (v: boolean) => void
@@ -862,20 +864,36 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Open a file to format it', 'info')
       return
     }
-    const result = formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
-    if (!result.ok) {
-      get().showToast(result.error, 'error')
-      return
+    void (async () => {
+      const result = await formatDocument(node.content, detectLanguage(node.path), get().settings.tabSize)
+      if (!result.ok) {
+        get().showToast(result.error, 'error')
+        return
+      }
+      if (result.text === node.content) {
+        get().showToast('Already formatted', 'info')
+        return
+      }
+      replaceDocument(result.text)
+      get().saveContent(id, result.text)
+      void get().persistContent(id)
+      get().refreshDiagnostics()
+      get().showToast('Document formatted', 'success')
+    })()
+  },
+  replaceInProject: async (query, replacement, opts = {}) => {
+    if (!query) return 0
+    let total = 0
+    const files = Object.values(get().nodeMap).filter((n) => n.type === 'file')
+    for (const n of files) {
+      const next = replaceInText(n.content, query, replacement, opts)
+      if (next.count === 0) continue
+      total += next.count
+      get().saveContent(n.id, next.text)
+      await get().persistContent(n.id)
     }
-    if (result.text === node.content) {
-      get().showToast('Already formatted', 'info')
-      return
-    }
-    replaceDocument(result.text)
-    get().saveContent(id, result.text)
-    void get().persistContent(id)
     get().refreshDiagnostics()
-    get().showToast('Document formatted', 'success')
+    return total
   },
   clearHistory: async () => {
     await historyDb.clearExecutionHistory()

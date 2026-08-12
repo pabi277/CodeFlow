@@ -1,8 +1,9 @@
 import { EditorSelection } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { undo, redo } from '@codemirror/commands'
-import { openSearchPanel } from '@codemirror/search'
+import { undo, redo, addCursorBelow } from '@codemirror/commands'
+import { openSearchPanel, selectNextOccurrence } from '@codemirror/search'
 import { startCompletion } from '@codemirror/autocomplete'
+import { expandEmmetInEditor } from '../editor/emmetExpand'
 
 // Registry so non-editor components (KeyboardToolbar, CommandPalette) can
 // drive the single mounted CodeMirror instance.
@@ -89,6 +90,23 @@ export function replaceDocument(text: string) {
     changes: { from: 0, to: view.state.doc.length, insert: text },
   })
   view.focus()
+}
+
+export function selectNextMatch() {
+  if (!view) return
+  selectNextOccurrence(view)
+  view.focus()
+}
+
+export function addCursorDown() {
+  if (!view) return
+  addCursorBelow(view)
+  view.focus()
+}
+
+export function expandEmmet(language = 'html') {
+  if (!view) return false
+  return expandEmmetInEditor(view, language)
 }
 
 export function parseLineCol(input: string): { line: number; col: number } | null {

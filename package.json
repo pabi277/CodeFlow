@@ -5,9 +5,24 @@
   "license": "MIT",
   "description": "A free, open-source, mobile-first code editor PWA with GitHub, Termux, and live preview.",
   "homepage": "https://github.com/pabi277/CodeFlow#readme",
-  "bugs": { "url": "https://github.com/pabi277/CodeFlow/issues" },
-  "repository": { "type": "git", "url": "https://github.com/pabi277/CodeFlow.git" },
-  "keywords": ["code-editor", "pwa", "mobile", "ide", "android", "termux", "github", "codemirror", "open-source"],
+  "bugs": {
+    "url": "https://github.com/pabi277/CodeFlow/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pabi277/CodeFlow.git"
+  },
+  "keywords": [
+    "code-editor",
+    "pwa",
+    "mobile",
+    "ide",
+    "android",
+    "termux",
+    "github",
+    "codemirror",
+    "open-source"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,7 +34,7 @@
     "test:phase4": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts",
     "test:completions": "tsx scripts/completions.test.ts",
     "test:execution": "tsx scripts/execution.test.ts",
-    "test": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts && tsx scripts/completions.test.ts && tsx scripts/execution.test.ts && tsx scripts/zip.test.ts && tsx scripts/bridge.integration.test.ts && tsx scripts/smoke.test.tsx && tsx scripts/diagnostics.test.ts && tsx scripts/markdown.test.ts && tsx scripts/format.test.ts && tsx scripts/htmlPreview.test.ts && tsx scripts/termuxPreview.test.ts",
+    "test": "tsx scripts/git.integration.test.ts && tsx scripts/snippets.integration.test.ts && tsx scripts/completions.test.ts && tsx scripts/execution.test.ts && tsx scripts/zip.test.ts && tsx scripts/bridge.integration.test.ts && tsx scripts/smoke.test.tsx && tsx scripts/diagnostics.test.ts && tsx scripts/markdown.test.ts && tsx scripts/format.test.ts && tsx scripts/htmlPreview.test.ts && tsx scripts/termuxPreview.test.ts && tsx scripts/emmet.test.ts && tsx scripts/projectSearch.test.ts",
     "test:zip": "tsx scripts/zip.test.ts",
     "test:smoke": "tsx scripts/smoke.test.tsx",
     "test:bridge": "tsx scripts/bridge.integration.test.ts",
@@ -57,8 +72,10 @@
     "@lezer/highlight": "^1.2.3",
     "axios": "^1.19.0",
     "dexie": "^4.4.4",
+    "emmet": "^2.4.11",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
+    "prettier": "^3.9.6",
     "react-icons": "^5.7.0",
     "react-router-dom": "^7.18.2",
     "zustand": "^5.0.14"

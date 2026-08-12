@@ -85,7 +85,10 @@ Built to make a developer feel like they have a real IDE in their pocket: a resp
 | **Outline** — functions/classes/variables for the active file | ✅ |
 | **Status bar** — line/col, language, indent, error/warning counts | ✅ |
 | **Go to Line** — command palette + Ctrl/Cmd+G | ✅ |
-| **Format Document** — JSON pretty-print + trailing-whitespace cleanup | ✅ |
+| **Format Document** — Prettier for JS/TS/HTML/CSS/Markdown; JSON pretty-print | ✅ |
+| **Multi-cursor** — Ctrl/Cmd+D, Alt+click, toolbar Next | ✅ |
+| **Emmet** — Tab expands HTML/CSS abbreviations | ✅ |
+| **Find & replace in project** — regex, whole word, replace all | ✅ |
 | **Keyboard shortcuts** — palette, find, go-to-line, drawer, terminal, format | ✅ |
 
 ## 🧱 Architecture

@@ -9,6 +9,8 @@ import {
   drawSelection,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { multiCursorExtensions } from '../../editor/multiCursor'
+import { expandEmmetInEditor } from '../../editor/emmetExpand'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
@@ -94,7 +96,24 @@ export function Editor() {
           bracketMatching(),
           foldGutter(),
           closeBrackets(),
-          keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...completionKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+          keymap.of([
+            {
+              key: 'Tab',
+              run: (v) => {
+                const path = activeTabRef.current ? useStore.getState().nodeMap[activeTabRef.current]?.path : ''
+                const lang = path ? detectLanguage(path) : 'plain'
+                if (['html', 'css', 'scss', 'less', 'xml', 'vue'].includes(lang) && expandEmmetInEditor(v, lang)) return true
+                return indentWithTab.run?.(v) ?? false
+              },
+            },
+            ...closeBracketsKeymap,
+            ...defaultKeymap,
+            ...completionKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            ...foldKeymap,
+          ]),
+          multiCursorExtensions,
           search({ top: false }),
           completionComp.current.of(
             autocompletion({

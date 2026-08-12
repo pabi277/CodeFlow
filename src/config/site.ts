@@ -17,7 +17,10 @@ export const SHORTCUTS: { keys: string; action: string }[] = [
   { keys: 'Ctrl/Cmd+Shift+F', action: 'Find in project' },
   { keys: 'Ctrl/Cmd+B', action: 'Toggle file explorer' },
   { keys: 'Ctrl/Cmd+J', action: 'Toggle terminal' },
-  { keys: 'Shift+Alt+F', action: 'Format document' },
+  { keys: 'Ctrl/Cmd+D', action: 'Add next occurrence (multi-cursor)' },
+  { keys: 'Alt+Click', action: 'Add another cursor' },
+  { keys: 'Tab', action: 'Expand Emmet (HTML/CSS)' },
+  { keys: 'Shift+Alt+F', action: 'Format document (Prettier)' },
   { keys: '?', action: 'Keyboard shortcuts' },
   { keys: 'Esc', action: 'Close dialogs' },
 ]
