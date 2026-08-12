@@ -23,14 +23,48 @@ export const GITHUB_OAUTH = {
   tokenProxyUrl: `${origin}/api/exchange`,
 }
 
-/** Extract a user-friendly message from any error thrown during OAuth. */
+/**
+ * Recursively pull a human-readable string out of any thrown value (Error,
+ * axios payload, Vercel platform error body, plain object, array, string).
+ * Returns undefined when nothing useful is found.
+ */
+function extractErrorMessage(value: unknown, depth = 0): string | undefined {
+  if (typeof value === 'string') return value || undefined
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value instanceof Error) return value.message || undefined
+  if (value && typeof value === 'object' && depth < 3) {
+    const record = value as Record<string, unknown>
+    // Common error-payload shapes: { error }, { message },
+    // { error_description }, { error: { code, message } }, ...
+    for (const key of ['error', 'message', 'error_description', 'detail', 'reason']) {
+      const extracted = extractErrorMessage(record[key], depth + 1)
+      if (extracted) return extracted
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const extracted = extractErrorMessage(item, depth + 1)
+        if (extracted) return extracted
+      }
+    }
+    // Platform errors such as Vercel's { code: "FUNCTION_INVOCATION_FAILED" }.
+    if (typeof record['code'] === 'string') return record['code']
+  }
+  return undefined
+}
+
+/** Extract a user-friendly message from any error thrown during OAuth.
+ *  Always returns a string — never an object — so callers can render it
+ *  directly (an object message would display as "[object Object]"). */
 export function oauthErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    return (err.response?.data as { error?: string } | undefined)?.error ||
-      err.message ||
-      'GitHub authentication failed. Please try again.'
+    // The server's JSON payload (e.g. the proxy's { error: "..." } or Vercel's
+    // { error: { code, message } } body) is more useful than axios's generic
+    // "Request failed with status code NNN".
+    const fromPayload = extractErrorMessage(err.response?.data)
+    if (fromPayload) return fromPayload
+    return err.message || 'GitHub authentication failed. Please try again.'
   }
-  return err instanceof Error && err.message ? err.message : 'GitHub authentication failed. Please try again.'
+  return extractErrorMessage(err) || 'GitHub authentication failed. Please try again.'
 }
 
 export async function loadStoredAuth(): Promise<GitHubAuth | null> {
