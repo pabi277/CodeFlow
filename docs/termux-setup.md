@@ -111,6 +111,7 @@ Go to **Settings → Execution → Termux Integration → Refresh**. The status 
 
 | Symptom | Fix |
 | --- | --- |
+| "Termux bridge not running" on Vercel (HTTPS) | You must open CodeFlow **on the phone** (not a PC). Copy the **latest** bridge from Settings, restart `node termux-bridge.js`, tap **Refresh**, and **Allow local network access** if Chrome prompts. Old bridge scripts reject Chrome’s private-network preflight. |
 | "Termux bridge not running" | Make sure `node termux-bridge.js` is still running in Termux, then tap **Refresh**. |
 | "Port 8080 in use" | Kill the old process: `pkill -f termux-bridge`, then run again. |
 | "python3 is not installed" | The bridge message tells you the exact install command (e.g. `pkg install python`). |

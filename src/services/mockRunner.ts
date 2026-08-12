@@ -31,14 +31,6 @@ export async function runLocalJavaScript(code: string, stdin: string): Promise<M
     debug: capture(stdoutLines),
   }
 
-  // Browser execution is batch-based, just like Judge0 and Termux: all input
-  // is entered before Run. Expose small familiar helpers so beginner-friendly
-  // code such as `const name = input()` or `prompt()` works without opening a
-  // browser-native dialog that appears to hang the editor.
-  const inputLines = stdin.replace(/\r\n/g, '\n').split('\n')
-  let inputIndex = 0
-  const readInput = () => inputLines[inputIndex++] ?? ''
-
   const wrappedTimeout = (fn: TimerHandler, ms?: number, ...rest: unknown[]) => {
     const id = setTimeout(() => {
       timers.delete(id)
@@ -63,17 +55,6 @@ export async function runLocalJavaScript(code: string, stdin: string): Promise<M
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
     ...args: string[]
   ) => (...args: unknown[]) => Promise<unknown>
-  const globalScope = globalThis as unknown as Record<string, unknown>
-  const helperNames = ['input', 'readline', 'prompt'] as const
-  const previousHelpers = helperNames.map((name) => ({
-    name,
-    existed: Object.prototype.hasOwnProperty.call(globalScope, name),
-    value: globalScope[name],
-  }))
-  globalScope.input = readInput
-  globalScope.readline = readInput
-  globalScope.prompt = readInput
-  let executionTimeout: ReturnType<typeof setTimeout> | null = null
 
   try {
     const fn = new AsyncFunction(
@@ -89,7 +70,7 @@ export async function runLocalJavaScript(code: string, stdin: string): Promise<M
       fn(sandboxConsole, stdin, wrappedTimeout, wrappedInterval, wrappedClear, wrappedClear),
     )
     const timeout = new Promise<never>((_, reject) => {
-      executionTimeout = setTimeout(() => reject(new Error(`Execution timed out after ${RUN_LIMIT_MS / 1000}s`)), RUN_LIMIT_MS)
+      setTimeout(() => reject(new Error(`Execution timed out after ${RUN_LIMIT_MS / 1000}s`)), RUN_LIMIT_MS)
     })
     const ret = await Promise.race([run, timeout])
     if (ret !== undefined && !(ret instanceof Promise)) stdoutLines.push(String(ret))
@@ -114,14 +95,9 @@ export async function runLocalJavaScript(code: string, stdin: string): Promise<M
       memoryKb: 2048,
     }
   } finally {
-    if (executionTimeout !== null) clearTimeout(executionTimeout)
     for (const id of timers) {
       clearTimeout(id)
       clearInterval(id as unknown as ReturnType<typeof setInterval>)
-    }
-    for (const helper of previousHelpers) {
-      if (helper.existed) globalScope[helper.name] = helper.value
-      else delete globalScope[helper.name]
     }
   }
 }

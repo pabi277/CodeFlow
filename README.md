@@ -149,8 +149,7 @@ src/
 
 - **JavaScript / TypeScript** run **locally** in a sandboxed `Function` capturing `console` — no API key needed.
 - **Other languages** require a **Judge0 CE API key** (RapidAPI). Paste it in **Settings → Execution**. Without a key, those languages show a friendly mock so the flow still works.
-- Programs use **batch input**: open **Program input** in the terminal, enter all values before pressing Run (one value per line), and then run the file. CodeFlow does not wait for typing after execution starts.
-- JavaScript/TypeScript also support `input()`, `readline()`, and `prompt()` using the values entered in Program input.
+- Stdin is provided via the **Input** toggle in the terminal panel.
 
 ## 🚀 Getting started
 
@@ -166,27 +165,23 @@ npm run test     # run the full test suite
 
 ## 🔐 Setting up GitHub OAuth (Phase 2)
 
-The GitHub OAuth **client secret** must never ship in frontend code. CodeFlow's
-Vercel deployment uses the serverless function in [`/api/exchange.js`](./api/exchange.js)
-to exchange the temporary code for a token.
+The GitHub OAuth **client secret** must never ship in frontend code, so the app
+delegates the code→token exchange to a small backend proxy. A ready-to-deploy
+**Cloudflare Worker** lives in [`/worker`](./worker).
 
 1. Register a GitHub **OAuth App** (Settings → Developer settings → OAuth Apps).
    Set the callback URL to `https://your-app.example.com/auth/callback`.
-2. Add these environment variables in Vercel (Preview and Production as needed):
-   - `VITE_GITHUB_CLIENT_ID` — public OAuth App client ID, used by the browser build
-   - `GITHUB_CLIENT_ID` — the same client ID, used by `/api/exchange`
-   - `GITHUB_CLIENT_SECRET` — OAuth App secret, server-only; never use a `VITE_` prefix
-3. Redeploy. Users can now tap **Connect GitHub** in the Git tab.
-
-A Cloudflare Worker alternative remains available in [`/worker`](./worker) for
-self-hosted deployments; do not configure both proxies at the same time.
-
-### Testing OAuth locally
-
-Copy `.env.example` to `.env.local`, fill in the three OAuth variables, and run
-`npm run dev`. The Vite dev server uses the same `/api/exchange.js` handler for
-local testing. Open the Git tab and choose **Connect GitHub**; callback errors
-are shown in a toast instead of being swallowed. Never commit `.env.local`.
+2. Deploy the worker and set its secrets:
+   ```bash
+   cd worker
+   wrangler deploy
+   wrangler secret put GITHUB_CLIENT_ID
+   wrangler secret put GITHUB_CLIENT_SECRET
+   ```
+3. Configure the frontend in `src/services/authService.ts`:
+   - `clientId` → your OAuth App's Client ID
+   - `tokenProxyUrl` → your deployed worker's `/exchange` URL
+4. Rebuild. Users can now tap **Connect GitHub** in the Git tab.
 
 ## 🖥️ Termux Integration
 

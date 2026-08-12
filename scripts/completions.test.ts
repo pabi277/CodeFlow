@@ -4,7 +4,7 @@
 import { extractLocalSymbols } from '../src/editor/completions/localSymbols'
 import { KEYWORDS_BY_LANG } from '../src/editor/completions/keywords'
 import {
-  PYTHON_COMPLETIONS, JS_COMPLETIONS, CPP_COMPLETIONS, JAVA_COMPLETIONS,
+  PYTHON_COMPLETIONS, JS_COMPLETIONS, CPP_COMPLETIONS, C_COMPLETIONS, JAVA_COMPLETIONS,
   symbolPairCompletion, templateCompletion,
 } from '../src/editor/completions/keywordCompletions'
 import type { CompletionContext } from '@codemirror/autocomplete'
@@ -64,12 +64,32 @@ async function main() {
   const constC = JS_COMPLETIONS.find((c) => c.label === 'const')
   ok(!!constC && typeof constC.apply === 'function', 'js const is a template')
 
+  console.log('\n[c indexing]')
+  const cSrc = `#include <stdio.h>
+#define MAX 10
+struct Node { int value; struct Node *next; };
+typedef struct Node Node;
+int add(int a, int b) { return a + b; }
+static int count = 0;
+`
+  const cSyms = extractLocalSymbols(cSrc, 'c')
+  ok(labels(cSyms).includes('add'), 'C finds function add')
+  ok(labels(cSyms).includes('Node'), 'C finds struct Node')
+  ok(labels(cSyms).includes('MAX'), 'C finds #define MAX')
+  ok(labels(cSyms).includes('count'), 'C finds static variable count')
+  ok(!labels(cSyms).includes('if'), 'C does not index control keywords')
+
   console.log('\n[c/c++ quick-fill templates]')
-  ok(has(CPP_COMPLETIONS, 'printf'), 'cpp has printf')
-  ok(has(CPP_COMPLETIONS, 'main'), 'cpp has main template')
-  ok(has(CPP_COMPLETIONS, 'include'), 'cpp has #include')
-  const includeC = CPP_COMPLETIONS.find((c) => c.label === 'include')
+  ok(has(C_COMPLETIONS, 'printf'), 'C has printf (not C++ cout)')
+  ok(has(C_COMPLETIONS, 'main'), 'C has main template')
+  ok(has(C_COMPLETIONS, 'include'), 'C has #include')
+  ok(!has(C_COMPLETIONS, 'cout'), 'C snippets do not include C++ cout')
+  ok(!has(C_COMPLETIONS, 'class'), 'C snippets do not include class')
+  ok(has(CPP_COMPLETIONS, 'cout'), 'C++ still has cout')
+  const includeC = C_COMPLETIONS.find((c) => c.label === 'include')
   ok(!!includeC && typeof includeC.apply === 'function', 'include is a template')
+  ok(KEYWORDS_BY_LANG.c.some((k) => k.label === 'restrict'), 'C keyword list has restrict')
+  ok(KEYWORDS_BY_LANG.c.some((k) => k.label === 'snprintf'), 'C libc list has snprintf')
 
   console.log('\n[java quick-fill templates]')
   ok(has(JAVA_COMPLETIONS, 'System.out.println'), 'java has System.out.println')

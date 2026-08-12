@@ -24,4 +24,3 @@ We will acknowledge the report and work on a fix before any public disclosure.
 - Store tokens in IndexedDB only — not localStorage, cookies, or the URL.
 - The Termux bridge must bind to `127.0.0.1` only and must not run arbitrary shell strings.
 - HTML preview must not execute `javascript:` or `data:` URLs from user markdown.
-- Please share your experience. 

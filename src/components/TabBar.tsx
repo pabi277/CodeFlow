@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { FileIcon } from '../utils/getFileIcon'
 import { VscClose, VscChevronLeft, VscChevronRight, VscPinned } from 'react-icons/vsc'
-import { useHorizontalScrollClickGuard } from '../hooks/useHorizontalScrollClickGuard'
 
 export function TabBar() {
   const openTabs = useStore((s) => s.openTabs)
@@ -25,7 +24,6 @@ export function TabBar() {
   const [menuId, setMenuId] = useState<string | null>(null)
   const [canLeft, setCanLeft] = useState(false)
   const [canRight, setCanRight] = useState(false)
-  const touchGuard = useHorizontalScrollClickGuard()
 
   const updateScroll = () => {
     const el = scrollRef.current
@@ -84,12 +82,7 @@ export function TabBar() {
           <VscChevronLeft />
         </button>
       )}
-      <div
-        ref={scrollRef}
-        {...touchGuard}
-        className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]"
-        style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
-      >
+      <div ref={scrollRef} className="flex min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]" style={{ scrollbarWidth: 'none' }}>
         {openTabs.map((id) => {
           const node = nodeMap[id]
           if (!node) return null

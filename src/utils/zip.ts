@@ -2,8 +2,7 @@
 // add to the bundle when the user actually exports or imports a project.
 
 import { listAllInProject } from '../db/files'
-import type { FileNode } from '../types'
-import { fileToStoredContent, isBinaryPath, isDataUrl, isImagePath, mimeForPath } from './binary'
+import { fileToStoredContent, isBinaryPath, isImagePath, mimeForPath } from './binary'
 
 /**
  * Export a project's files as a downloadable .zip archive.
@@ -26,43 +25,6 @@ export async function buildProjectZip(projectId: string): Promise<Blob> {
 export async function downloadProjectZip(projectId: string, projectName: string) {
   const [blob, { saveAs }] = await Promise.all([buildProjectZip(projectId), import('file-saver')])
   const safe = (projectName || 'project').replace(/[^a-zA-Z0-9-_]/g, '_')
-  saveAs(blob, `${safe}.zip`)
-}
-
-/** Build a ZIP containing a folder and all of its descendants. */
-export async function buildFolderZip(folderId: string, nodeMap: Record<string, FileNode>): Promise<Blob> {
-  const { default: JSZip } = await import('jszip')
-  const folder = nodeMap[folderId]
-  if (!folder || folder.type !== 'folder') throw new Error('Folder not found')
-
-  const zip = new JSZip()
-  const addNode = (node: FileNode, prefix: string) => {
-    if (node.type === 'file') {
-      const path = `${prefix}${node.name}`
-      if (isDataUrl(node.content)) {
-        const comma = node.content.indexOf(',')
-        if (comma >= 0) {
-          zip.file(path, node.content.slice(comma + 1), { base64: true })
-          return
-        }
-      }
-      zip.file(path, node.content || '')
-      return
-    }
-    const childPrefix = `${prefix}${node.name}/`
-    for (const childId of node.childIds) {
-      const child = nodeMap[childId]
-      if (child) addNode(child, childPrefix)
-    }
-  }
-
-  addNode(folder, '')
-  return zip.generateAsync({ type: 'blob', compression: 'STORE' })
-}
-
-export async function downloadFolderZip(folderId: string, nodeMap: Record<string, FileNode>, folderName: string) {
-  const [blob, { saveAs }] = await Promise.all([buildFolderZip(folderId, nodeMap), import('file-saver')])
-  const safe = (folderName || 'folder').replace(/[^a-zA-Z0-9-_]/g, '_')
   saveAs(blob, `${safe}.zip`)
 }
 

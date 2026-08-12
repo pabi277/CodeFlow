@@ -16,8 +16,9 @@ import { indentGuides } from '../../editor/indentGuides'
 import { rainbowBrackets } from '../../editor/rainbowBrackets'
 import { linkedEditing } from '../../editor/linkedEditing'
 import { formatOnPaste } from '../../editor/pasteIndent'
+import { cIndent } from '../../editor/cIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
 import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
@@ -40,13 +41,6 @@ import { VscCode } from 'react-icons/vsc'
 import { Minimap } from './Minimap'
 import { StickyScroll } from './StickyScroll'
 
-function saveEditorPosition(id: string, view: EditorView) {
-  const pos = view.state.selection.main.head
-  const line = view.state.doc.lineAt(pos)
-  useStore.getState().saveActiveEditorCursor(id, { line: line.number, col: pos - line.from + 1 })
-  useStore.getState().saveActiveEditorScroll(id, view.scrollDOM.scrollTop)
-}
-
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -64,6 +58,7 @@ export function Editor() {
   const rainbowComp = useRef(new Compartment())
   const linkedComp = useRef(new Compartment())
   const pasteComp = useRef(new Compartment())
+  const cIndentComp = useRef(new Compartment())
   const drawSelComp = useRef(new Compartment())
 
   const activeTabId = useStore((s) => s.activeTabId)
@@ -75,9 +70,7 @@ export function Editor() {
   const diagnostics = useStore((s) => s.diagnostics)
   const persistRef = useRef(persistContent)
   persistRef.current = persistContent
-  const activeTabRef = useRef(activeTabId)
-  activeTabRef.current = activeTabId
-  const loadedTabRef = useRef<string | null>(null)
+  const debouncedSave = useRef<((id: string) => void) | null>(null)
 
   // Mount the CodeMirror view once
   useEffect(() => {
@@ -85,11 +78,17 @@ export function Editor() {
     if (!container) return
 
     const saveTimer = debounce((id: string) => persistRef.current(id), settings.autoSaveDelay)
+    debouncedSave.current = saveTimer
     const diagTimer = debounce(() => useStore.getState().refreshDiagnostics(), 400)
 
-    const persistPos = debounce((id: string, cursor: { line: number; col: number }, top: number) => {
-      useStore.getState().saveActiveEditorCursor(id, cursor)
-      useStore.getState().saveActiveEditorScroll(id, top)
+    const persistPos = debounce(() => {
+      const id = activeTabRef.current
+      const v = viewRef.current
+      if (!id || !v) return
+      const pos = v.state.selection.main.head
+      const line = v.state.doc.lineAt(pos)
+      useStore.getState().saveActiveEditorCursor(id, { line: line.number, col: pos - line.from + 1 })
+      useStore.getState().saveActiveEditorScroll(id, v.scrollDOM.scrollTop)
     }, 250)
 
     const updateListener = EditorView.updateListener.of((update) => {
@@ -98,13 +97,10 @@ export function Editor() {
       const next = { line: line.number, col: pos - line.from + 1 }
       const prev = useStore.getState().cursorPos
       if (prev.line !== next.line || prev.col !== next.col) useStore.getState().setCursorPos(next)
+      if (update.selectionSet || update.viewportChanged) persistPos()
+      if (!update.docChanged) return
       const id = activeTabRef.current
-      if (id && (update.selectionSet || update.viewportChanged)) {
-        // Capture the position now. If the user switches tabs before the
-        // debounce fires, the delayed write must still belong to this tab.
-        persistPos(id, next, update.view.scrollDOM.scrollTop)
-      }
-      if (!update.docChanged || !id) return
+      if (!id) return
       const text = update.state.doc.toString()
       saveContent(id, text)
       saveTimer(id)
@@ -169,18 +165,21 @@ export function Editor() {
             {
               key: 'Tab',
               run: (v) => {
+                if (acceptCompletion(v)) return true
                 const path = activeTabRef.current ? useStore.getState().nodeMap[activeTabRef.current]?.path : ''
                 const lang = path ? detectLanguage(path) : 'plain'
                 if (['html', 'css', 'scss', 'less', 'xml', 'vue'].includes(lang) && expandEmmetInEditor(v, lang)) return true
                 return indentWithTab.run?.(v) ?? false
               },
             },
+            // Enter must insert a newline — never accept if/for snippets (that
+            // used to expand a block and felt like a new tab after every Enter).
             { key: 'F12', run: () => { void useStore.getState().goToDefinition(); return true } },
             { key: 'Shift-F12', run: () => { void useStore.getState().findReferences(); return true } },
             { key: 'F2', run: () => { useStore.getState().openRename(); return true } },
             ...closeBracketsKeymap,
             ...defaultKeymap,
-            ...completionKeymap,
+            ...completionKeymap.filter((b) => b.key !== 'Enter'),
             ...searchKeymap,
             ...historyKeymap,
             ...foldKeymap,
@@ -190,10 +189,11 @@ export function Editor() {
           completionComp.current.of(
             autocompletion({
               override: [getCompletionSourceForLanguage('plain')],
-              defaultKeymap: true,
+              defaultKeymap: false,
               activateOnTyping: true,
-              maxRenderedOptions: 50,
+              maxRenderedOptions: 8,
               closeOnBlur: true,
+              aboveCursor: true,
             }),
           ),
           langComp.current.of([]),
@@ -208,6 +208,7 @@ export function Editor() {
           rainbowComp.current.of([]),
           linkedComp.current.of([]),
           pasteComp.current.of([]),
+          cIndentComp.current.of([]),
           lintComp.current.of([lintGutter(), lintSource]),
           updateListener,
         ],
@@ -236,47 +237,34 @@ export function Editor() {
     }
   }, [focusEditorRequest])
 
-  // Update the document when the active tab changes and restore its saved
-  // cursor/scroll position. The loaded-tab ref lets two files with identical
-  // contents keep distinct editor positions.
+  // Track active file id for the change listener
+  const activeTabRef = useRef(activeTabId)
+  activeTabRef.current = activeTabId
+
+  // Update document when active tab changes
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
-
-    const previousTabId = loadedTabRef.current
-    const tabChanged = previousTabId !== activeTabId
-    if (previousTabId && tabChanged) saveEditorPosition(previousTabId, view)
-
     const node = activeTabId ? nodeMap[activeTabId] : undefined
     const content = node?.content || ''
     const current = view.state.doc.toString()
     const pending = useStore.getState().pendingGoTo
     const keepSelection = !!(pending && pending.fileId === activeTabId)
-    const documentChanged = current !== content
-
-    if (documentChanged) {
+    if (current !== content) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
         ...(keepSelection ? {} : { selection: EditorSelection.cursor(0), scrollIntoView: true }),
       })
     }
-
     if (pending && pending.fileId === activeTabId) {
       goToPosition(pending.line, pending.col)
       useStore.getState().clearPendingGoTo()
-    } else if (activeTabId && tabChanged && !keepSelection) {
+    } else if (activeTabId && current !== content && !keepSelection) {
       const saved = useStore.getState().cursorPositions[activeTabId]
-      if (saved) {
-        goToPosition(saved.line, saved.col)
-      } else if (!documentChanged) {
-        view.dispatch({ selection: EditorSelection.cursor(0), scrollIntoView: true })
-      }
-
+      if (saved) goToPosition(saved.line, saved.col)
       const top = useStore.getState().scrollPositions[activeTabId]
-      view.scrollDOM.scrollTop = typeof top === 'number' ? top : 0
+      if (typeof top === 'number') view.scrollDOM.scrollTop = top
     }
-
-    loadedTabRef.current = activeTabId
   }, [activeTabId, nodeMap])
 
   // Reconfigure language + completion source when the active file changes
@@ -299,10 +287,11 @@ export function Editor() {
         effects: completionComp.current.reconfigure(
           autocompletion({
             override: [getCompletionSourceForLanguage(lang)],
-            defaultKeymap: true,
+            defaultKeymap: false,
             activateOnTyping: true,
-            maxRenderedOptions: 50,
+            maxRenderedOptions: 8,
             closeOnBlur: true,
+            aboveCursor: true,
           }),
         ),
       })
@@ -364,6 +353,7 @@ export function Editor() {
     const lang = activePath ? detectLanguage(activePath) : 'plain'
     view.dispatch({ effects: linkedComp.current.reconfigure(['html', 'xml', 'vue'].includes(lang) ? linkedEditing() : []) })
     view.dispatch({ effects: pasteComp.current.reconfigure(settings.formatOnPaste ? formatOnPaste() : []) })
+    view.dispatch({ effects: cIndentComp.current.reconfigure(['c', 'cpp'].includes(lang) ? cIndent() : []) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     settings.themePreset, settings.customThemes, settings.showLineNumbers, settings.wordWrap, settings.fontSize,

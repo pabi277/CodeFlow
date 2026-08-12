@@ -20,12 +20,13 @@ const PATTERNS: { re: RegExp; severity: 'error' | 'warning' }[] = [
 ]
 
 export function matchProblems(text: string): MatchedProblem[] {
+  const src = text.length > 12_000 ? text.slice(0, 12_000) : text
   const out: MatchedProblem[] = []
   const seen = new Set<string>()
   for (const { re } of PATTERNS) {
     re.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = re.exec(text))) {
+    while ((m = re.exec(src))) {
       const path = m[1].replace(/\\/g, '/')
       const line = Number(m[2])
       const col = m[3] && /^\d+$/.test(m[3]) ? Number(m[3]) : 1
@@ -35,7 +36,7 @@ export function matchProblems(text: string): MatchedProblem[] {
       const key = `${path}:${line}:${col}:${severity}`
       if (seen.has(key)) continue
       seen.add(key)
-      const after = text.slice(m.index, m.index + 220).split('\n')[0]
+      const after = src.slice(m.index, m.index + 220).split('\n')[0]
       out.push({ path, line, col: col > 0 ? col : 1, message: after.trim(), severity })
     }
   }

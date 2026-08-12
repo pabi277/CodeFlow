@@ -68,14 +68,13 @@ export function CommandPalette() {
   const findReferences = useStore((s) => s.findReferences)
   const openRename = useStore((s) => s.openRename)
   const [query, setQuery] = useState('')
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [sel, setSel] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
-  const selectedItemRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (open) {
       setQuery('')
-      setSelectedIndex(0)
+      setSel(0)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
@@ -152,17 +151,7 @@ export function CommandPalette() {
 
   const results = [...cmdResults, ...fileResults].sort((a, b) => b.score - a.score).slice(0, 30)
 
-  useEffect(() => {
-    setSelectedIndex(0)
-  }, [query])
-
-  useEffect(() => {
-    setSelectedIndex((index) => (results.length ? Math.min(Math.max(0, index), results.length - 1) : 0))
-  }, [results.length])
-
-  useEffect(() => {
-    selectedItemRef.current?.scrollIntoView?.({ block: 'nearest' })
-  }, [selectedIndex])
+  useEffect(() => { setSel(0) }, [query])
 
   const runResult = (r: (typeof results)[number]) => {
     if (r.type === 'file') { openFile(r.id); setOpen(false) }
@@ -182,17 +171,9 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setSelectedIndex((index) => Math.min(Math.max(0, results.length - 1), index + 1))
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setSelectedIndex((index) => Math.max(0, index - 1))
-              } else if (e.key === 'Enter') {
-                e.preventDefault()
-                const selected = results[selectedIndex]
-                if (selected) runResult(selected)
-              }
+              if (e.key === 'ArrowDown') { e.preventDefault(); setSel((i) => Math.min(results.length - 1, i + 1)) }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((i) => Math.max(0, i - 1)) }
+              else if (e.key === 'Enter') { e.preventDefault(); if (results[sel]) runResult(results[sel]) }
             }}
             placeholder="Type a command or file name…"
             className="flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-muted/60"
@@ -203,11 +184,8 @@ export function CommandPalette() {
             results.map((r, i) => (
               <button
                 key={`${r.type}-${r.label}`}
-                ref={i === selectedIndex ? selectedItemRef : undefined}
                 onClick={() => runResult(r)}
-                onMouseEnter={() => setSelectedIndex(i)}
-                aria-selected={i === selectedIndex}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink ${i === selectedIndex ? 'bg-accent/15 ring-1 ring-inset ring-accent/30' : 'active:bg-accent/10'}`}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink ${i === sel ? 'bg-accent/15' : 'active:bg-accent/10'}`}
               >
                 <span className={r.type === 'file' ? 'text-ink-muted' : 'text-accent'}>
                   {r.type === 'file' ? <AiOutlineFile size={18} /> : <VscSymbolMethod size={18} />}

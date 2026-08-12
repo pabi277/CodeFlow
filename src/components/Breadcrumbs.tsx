@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { useStore } from '../store/useStore'
 import { VscChevronRight } from 'react-icons/vsc'
-import { useHorizontalScrollClickGuard } from '../hooks/useHorizontalScrollClickGuard'
 
 export function Breadcrumbs() {
   const enabled = useStore((s) => s.settings.showBreadcrumbs)
@@ -11,7 +10,6 @@ export function Breadcrumbs() {
   const activeProjectId = useStore((s) => s.activeProjectId)
   const revealInExplorer = useStore((s) => s.revealInExplorer)
   const openFile = useStore((s) => s.openFile)
-  const touchGuard = useHorizontalScrollClickGuard()
 
   const crumbs = useMemo(() => {
     const file = activeTabId ? nodeMap[activeTabId] : undefined
@@ -29,12 +27,7 @@ export function Breadcrumbs() {
   if (!enabled || !crumbs.length) return null
 
   return (
-    <nav
-      aria-label="Breadcrumb"
-      {...touchGuard}
-      className="flex h-7 items-center gap-0.5 overflow-x-auto border-b border-border/40 bg-surface/80 px-2 text-[11px] dark:bg-panel [scrollbar-width:none]"
-      style={{ touchAction: 'pan-x' }}
-    >
+    <nav aria-label="Breadcrumb" className="flex h-7 items-center gap-0.5 overflow-x-auto border-b border-border/40 bg-surface/80 px-2 text-[11px] dark:bg-panel [scrollbar-width:none]">
       {crumbs.map((c, i) => {
         const last = i === crumbs.length - 1
         return (

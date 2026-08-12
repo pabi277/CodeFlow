@@ -4,7 +4,7 @@ import { openFind } from '../utils/editorApi'
 import { IconButton } from './Shared/IconButton'
 import { BottomSheet } from './Shared/BottomSheet'
 import { HiMenu, HiDotsVertical } from 'react-icons/hi'
-import { FaPlay } from 'react-icons/fa'
+import { FaPlay, FaStop } from 'react-icons/fa'
 import { AiOutlineSetting, AiOutlineSearch, AiOutlinePlus, AiOutlineFolder, AiOutlineFileText, AiOutlineDownload, AiOutlineEye, AiOutlineExport } from 'react-icons/ai'
 import { VscClearAll, VscTerminal, VscHistory, VscCode, VscGitCommit, VscError } from 'react-icons/vsc'
 import { isHtmlPreview, isPreviewable } from '../utils/markdown'
@@ -12,7 +12,9 @@ import { isHtmlPreview, isPreviewable } from '../utils/markdown'
 export function TopBar() {
   const toggleDrawer = useStore((s) => s.toggleDrawer)
   const runCurrentFile = useStore((s) => s.runCurrentFile)
+  const stopLiveRun = useStore((s) => s.stopLiveRun)
   const running = useStore((s) => s.running)
+  const liveSessionId = useStore((s) => s.liveSessionId)
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
   const setCommandPalette = useStore((s) => s.setCommandPalette)
@@ -66,14 +68,25 @@ export function TopBar() {
             <AiOutlineEye size={20} className={previewMode !== 'editor' ? 'text-accent' : undefined} />
           </IconButton>
         )}
-        <button
-          onClick={() => runCurrentFile()}
-          aria-label="Run code"
-          className="flex h-11 items-center gap-2 rounded-lg bg-[#2ea043] px-4 font-semibold text-white transition-all duration-150 hover:bg-[#2c974b] active:scale-[0.98] active:opacity-90"
-        >
-          {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
-          <span className="text-[13px]">Run</span>
-        </button>
+        {liveSessionId ? (
+          <button
+            onClick={() => void stopLiveRun()}
+            aria-label="Stop program"
+            className="flex h-11 items-center gap-2 rounded-lg bg-red-600 px-4 font-semibold text-white"
+          >
+            <FaStop size={12} />
+            <span className="text-[13px]">Stop</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => runCurrentFile()}
+            aria-label="Run code"
+            className="flex h-11 items-center gap-2 rounded-lg bg-[#2ea043] px-4 font-semibold text-white transition-all duration-150 hover:bg-[#2c974b] active:scale-[0.98] active:opacity-90"
+          >
+            {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
+            <span className="text-[13px]">Run</span>
+          </button>
+        )}
         <IconButton label="More" onClick={() => setMenuOpen(true)}>
           <HiDotsVertical size={22} />
         </IconButton>
