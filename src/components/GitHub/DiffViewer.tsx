@@ -38,7 +38,7 @@ export function DiffViewer() {
         >
           {side ? 'Unified' : 'Side by side'}
         </button>
-        {!node.isNew && (
+        {!node.isNew && !node.isDeleted && (
           <button
             onClick={() => { if (window.confirm('Discard all local changes to this file?')) discard(node.id) }}
             className="flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-2 text-[12px] font-medium text-red-400 active:opacity-80"

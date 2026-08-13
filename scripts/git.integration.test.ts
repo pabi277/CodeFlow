@@ -474,6 +474,38 @@ async function main() {
   ok(fake.repos['octocat/e2e']['index.html'] === '<h1>hi</h1>', 'root zip file pushed to GitHub')
   ok(fake.repos['octocat/e2e']['src/utils/helper.py'] === 'def h(): pass\n', 'nested zip file pushed to GitHub')
 
+  console.log('\n[23] git status recomputes modified from content (stale flag ignored)')
+  const trackedNew = await fsDb.createNode(project.id, null, 'tracked.txt', 'file', 'orig\n', { isNew: false, gitSha: 'sha-orig', originalContent: 'orig\n' })
+  await db.files.update(trackedNew.id, { content: 'changed\n', isGitModified: false })
+  let map23 = Object.fromEntries((await fsDb.listAllInProject(project.id)).map((n) => [n.id, n]))
+  let st23 = await gitService.computeGitStatus(project.id, map23)
+  ok(st23.some((s) => s.id === trackedNew.id && s.status === 'modified'), 'content difference detected despite isGitModified:false')
+
+  console.log('\n[24] persisted edit survives a reload (updateContent writes isGitModified)')
+  await fsDb.updateContent(trackedNew.id, 'changed2\n', true)
+  const reloaded24 = await fsDb.listAllInProject(project.id)
+  const reloadedTracked = reloaded24.find((n) => n.id === trackedNew.id)!
+  ok(reloadedTracked.isGitModified === true, 'isGitModified persisted to the files store')
+  ok(reloadedTracked.gitSha === 'sha-orig' && reloadedTracked.originalContent === 'orig\n', 'gitSha / originalContent left intact by updateContent')
+  st23 = await gitService.computeGitStatus(project.id, Object.fromEntries(reloaded24.map((n) => [n.id, n])))
+  ok(st23.some((s) => s.id === trackedNew.id && s.status === 'modified'), 'status still modified after reloading from IDB')
+
+  console.log('\n[25] delete a tracked file → tombstone → commit deletes it remotely')
+  fake.repos['octocat/hello']['del_me.txt'] = 'bye\n'
+  const delMe = await fsDb.createNode(project.id, null, 'del_me.txt', 'file', 'bye\n', { isNew: false, gitSha: 'sha-bye', originalContent: 'bye\n' })
+  await fsDb.markTrackedDeleted(delMe.id)
+  const map25 = Object.fromEntries((await fsDb.listAllInProject(project.id)).map((n) => [n.id, n]))
+  const st25 = await gitService.computeGitStatus(project.id, map25)
+  ok(st25.some((s) => s.id === delMe.id && s.status === 'deleted'), 'tracked delete shows as deleted')
+  await gitService.commitChanges(project.id, { message: 'delete del_me', includeIds: [delMe.id], push: true })
+  ok(!('del_me.txt' in fake.repos['octocat/hello']), 'commit pushed a tree entry with sha:null (remote file removed)')
+  ok(await fsDb.getNode(delMe.id) === undefined, 'tombstone hard-deleted after commit')
+
+  console.log('\n[26] delete a new file → hard delete (no tombstone)')
+  const newDelete = await fsDb.createNode(project.id, null, 'throwaway.txt', 'file', 'x\n')
+  await fsDb.deleteNode(newDelete.id)
+  ok(await fsDb.getNode(newDelete.id) === undefined, 'new file is hard-deleted immediately')
+
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
   process.exit(fail ? 1 : 0)

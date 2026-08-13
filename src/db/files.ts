@@ -131,13 +131,17 @@ export async function getChildren(parentId: string | null, projectId: string): P
   })
 }
 
-export async function updateContent(id: string, content: string): Promise<void> {
+export async function updateContent(id: string, content: string, isGitModified?: boolean): Promise<void> {
   const node = await db.files.get(id)
   if (!node || node.type !== 'file') return
   if (content.length > LIMITS.maxBytesPerFile) {
     throw new FileSystemError('File exceeds 10 MB — it is too large to save')
   }
-  await db.files.update(id, { content, modifiedAt: Date.now() })
+  const patch: Partial<FileNode> = { content, modifiedAt: Date.now() }
+  // Persist the git-modified flag alongside the content so it survives an app
+  // kill. Never touch gitSha / originalContent here.
+  if (isGitModified !== undefined) patch.isGitModified = isGitModified
+  await db.files.update(id, patch)
 }
 
 export async function renameNode(id: string, newName: string): Promise<void> {
@@ -249,19 +253,22 @@ export async function syncGitFile(id: string, content: string, sha: string): Pro
 export async function markTrackedDeleted(id: string): Promise<void> {
   const node = await db.files.get(id)
   if (!node) return
+  // Keep the node in the files table (and in its parent's childIds) so the
+  // explorer and git panel can still show it as deleted until it is committed.
   await db.files.update(id, { isDeleted: true })
-  if (node.parentId) {
+}
+
+/** Fully remove a file (used for untracked deletions or after committing a deletion). */
+export async function hardDelete(id: string): Promise<void> {
+  const node = await db.files.get(id)
+  await db.files.delete(id)
+  if (node?.parentId) {
     const parent = await db.files.get(node.parentId)
     if (parent) {
       parent.childIds = parent.childIds.filter((c) => c !== id)
       await db.files.put(parent)
     }
   }
-}
-
-/** Fully remove a file (used for untracked deletions or after committing a deletion). */
-export async function hardDelete(id: string): Promise<void> {
-  await db.files.delete(id)
 }
 
 /** Fetch all tracked+deleted tombstones in a project. */

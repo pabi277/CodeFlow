@@ -112,6 +112,26 @@ export default function App() {
     applyThemePreset(themePreset)
   }, [themePreset])
 
+  // Persist unsaved edits + editor state when the tab is hidden or unloaded.
+  // Android kills the PWA without warning — pagehide / visibilitychange are the
+  // last reliable chance to write the debounced saves and caret/scroll.
+  useEffect(() => {
+    const persistNow = () => {
+      const s = useStore.getState()
+      void s.flushDirtyTabs()
+      void s.persistEditorState()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow()
+    }
+    window.addEventListener('pagehide', persistNow)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', persistNow)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   if (!booted) {
     return <div className="flex h-dvh items-center justify-center bg-surface text-ink-muted dark:bg-panel">Loading…</div>
   }

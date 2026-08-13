@@ -21,7 +21,7 @@ export function FileListSidebar() {
   const openContextMenu = useStore((s) => s.openContextMenu)
 
   const files = useMemo(
-    () => Object.values(nodeMap).filter((n) => n.type === 'file').sort((a, b) => a.path.localeCompare(b.path)),
+    () => Object.values(nodeMap).filter((n) => n.type === 'file' && !n.isDeleted).sort((a, b) => a.path.localeCompare(b.path)),
     [nodeMap],
   )
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { EditorState, Compartment, EditorSelection } from '@codemirror/state'
+import { EditorState, Compartment, EditorSelection, Transaction } from '@codemirror/state'
 import {
   EditorView,
   keymap,
@@ -254,6 +254,9 @@ export function Editor() {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
         ...(keepSelection ? {} : { selection: EditorSelection.cursor(0), scrollIntoView: true }),
+        // Tab switches and other programmatic loads must never become an undo
+        // step, otherwise Undo would re-insert the previous file's content.
+        annotations: Transaction.addToHistory.of(false),
       })
     }
     if (pending && pending.fileId === activeTabId) {

@@ -17,7 +17,10 @@ export async function createProject(name: string, rootFolderId: string): Promise
 }
 
 export async function listProjects(): Promise<Project[]> {
-  return db.projects.toArray()
+  const projects = await db.projects.toArray()
+  // Most-recently-opened first so bootstrap restores the project the user was
+  // last working in (Android kills the PWA and reopens the app constantly).
+  return projects.sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0))
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
