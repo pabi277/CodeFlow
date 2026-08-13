@@ -11,6 +11,49 @@ import type { GitHubAuth } from '../types'
 
 const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
+// OAuth state must survive the redirect even when Android kills the tab in
+// between (sessionStorage is lost then). Stored in localStorage as
+// `{ state, expiresAt }` with a short TTL so a stale entry can't be replayed.
+const OAUTH_STATE_KEY = 'cf_oauth_state'
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
+function storeOAuthState(state: string): void {
+  try {
+    localStorage.setItem(OAUTH_STATE_KEY, JSON.stringify({ state, expiresAt: Date.now() + OAUTH_STATE_TTL_MS }))
+  } catch {
+    // Storage may be unavailable (private mode) — the callback will then
+    // report a mismatch rather than failing silently.
+  }
+}
+
+/** Return the pending OAuth state if it is still valid, otherwise null. */
+function readOAuthState(): string | null {
+  try {
+    const raw = localStorage.getItem(OAUTH_STATE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { state?: unknown; expiresAt?: unknown }
+    if (typeof parsed.state !== 'string' || typeof parsed.expiresAt !== 'number') {
+      localStorage.removeItem(OAUTH_STATE_KEY)
+      return null
+    }
+    if (parsed.expiresAt < Date.now()) {
+      localStorage.removeItem(OAUTH_STATE_KEY)
+      return null
+    }
+    return parsed.state
+  } catch {
+    return null
+  }
+}
+
+function clearOAuthState(): void {
+  try {
+    localStorage.removeItem(OAUTH_STATE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 // OAuth App config (frontend-safe values only — never the client secret).
 export const GITHUB_OAUTH = {
   clientId: import.meta.env?.VITE_GITHUB_CLIENT_ID || '',
@@ -67,7 +110,7 @@ export function beginOAuth(): void {
     throw new Error('GitHub OAuth is not configured — VITE_GITHUB_CLIENT_ID is missing.')
   }
   const state = Math.random().toString(36).slice(2)
-  sessionStorage.setItem('cf_oauth_state', state)
+  storeOAuthState(state)
   const params = new URLSearchParams({
     client_id: GITHUB_OAUTH.clientId,
     redirect_uri: GITHUB_OAUTH.redirectUri,
@@ -88,13 +131,13 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
   const state = params.get('state')
   const oauthError = params.get('error')
   if (oauthError) {
-    sessionStorage.removeItem('cf_oauth_state')
+    clearOAuthState()
     if (window.history.replaceState) window.history.replaceState({}, '', '/')
     throw new Error(params.get('error_description') || `GitHub authorization failed: ${oauthError}`)
   }
   if (!code) return null
 
-  const expectedState = sessionStorage.getItem('cf_oauth_state')
+  const expectedState = readOAuthState()
   if (!state || !expectedState || state !== expectedState) {
     throw new Error('OAuth state mismatch — please try again.')
   }
@@ -124,7 +167,7 @@ export async function handleOAuthCallback(): Promise<GitHubAuth | null> {
     scopes: GITHUB_OAUTH.scopes,
   }
   await setAuth(auth)
-  sessionStorage.removeItem('cf_oauth_state')
+  clearOAuthState()
   if (window.history.replaceState) window.history.replaceState({}, '', '/')
   return auth
 }

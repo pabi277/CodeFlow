@@ -24,7 +24,12 @@ g.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} }
 g.visualViewport = { height: 600, addEventListener(){}, removeEventListener(){}, scroll: 0 }
 g.window.matchMedia = () => ({ matches: false, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){} })
 g.window.scrollTo = () => {}
-dom.window.sessionStorage.setItem('cf_oauth_state', 'teststate')
+// OAuth state lives in localStorage (with a TTL) so it survives an Android
+// tab kill; sessionStorage is not relied on anywhere in the flow.
+function setOAuthState(state: string, expiresAt = Date.now() + 60_000) {
+  dom.window.localStorage.setItem('cf_oauth_state', JSON.stringify({ state, expiresAt }))
+}
+setOAuthState('teststate')
 
 let pass = 0
 let fail = 0
@@ -64,7 +69,7 @@ async function main() {
 
   console.log('\n[2] bootstrap with failing exchange -> toast (Bug 3)')
   dom.window.history.replaceState({}, '', '/auth/callback?code=testcode123&state=teststate')
-  dom.window.sessionStorage.setItem('cf_oauth_state', 'teststate')
+  setOAuthState('teststate')
   await db.gitHubAuth.clear()
   useStore.setState({ auth: null, booted: false, toasts: [] })
   exchangeBehavior = () => {
@@ -82,7 +87,7 @@ async function main() {
 
   console.log('\n[3] bootstrap without /auth/callback pathname but with ?code= (fallback)')
   dom.window.history.replaceState({}, '', '/app?code=fallbackcode&state=teststate')
-  dom.window.sessionStorage.setItem('cf_oauth_state', 'teststate')
+  setOAuthState('teststate')
   useStore.setState({ auth: null, booted: false, toasts: [] })
   exchangeBehavior = () => ({ data: { access_token: 'gho_fallback_token' } })
   await useStore.getState().bootstrap()
@@ -159,6 +164,28 @@ async function main() {
     process.env.GITHUB_CLIENT_ID = envBackup.id
     process.env.GITHUB_CLIENT_SECRET = envBackup.secret
   }
+
+  console.log('\n[7] OAuth state survives without sessionStorage (valid localStorage state)')
+  // Simulate Android killing the tab: sessionStorage is wiped, but localStorage
+  // still holds a valid, unexpired state — the callback must still succeed.
+  dom.window.sessionStorage.clear()
+  dom.window.history.replaceState({}, '', '/auth/callback?code=ls_code&state=ls_state')
+  setOAuthState('ls_state')
+  useStore.setState({ auth: null, booted: false, toasts: [] })
+  exchangeBehavior = () => ({ data: { access_token: 'gho_ls_token' } })
+  await useStore.getState().bootstrap()
+  check('localStorage state survives without sessionStorage', useStore.getState().auth?.token === 'gho_ls_token', `got ${useStore.getState().auth?.token}`)
+
+  console.log('\n[8] expired OAuth state is rejected (mismatch, no token)')
+  await db.gitHubAuth.clear()
+  dom.window.history.replaceState({}, '', '/auth/callback?code=exp_code&state=exp_state')
+  setOAuthState('exp_state', Date.now() - 1000) // already expired
+  useStore.setState({ auth: null, booted: false, toasts: [] })
+  exchangeBehavior = () => ({ data: { access_token: 'gho_should_not_be_used' } })
+  await useStore.getState().bootstrap()
+  const mismatchToasts = useStore.getState().toasts.filter((t) => t.type === 'error' && t.message.includes('state mismatch'))
+  check('expired state fails with a mismatch toast', mismatchToasts.length === 1, JSON.stringify(useStore.getState().toasts))
+  check('no auth is stored for an expired state', useStore.getState().auth === null)
 
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)

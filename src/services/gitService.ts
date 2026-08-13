@@ -61,12 +61,28 @@ export interface GitStatusItem {
 
 export async function computeGitStatus(projectId: string, nodeMap: Record<string, FileNode>): Promise<GitStatusItem[]> {
   const items: GitStatusItem[] = []
-  const deleted = await fsDb.listDeletedInProject(projectId)
-  for (const n of deleted) items.push({ id: n.id, path: n.path, status: 'deleted' })
+  const seen = new Set<string>()
+  // Recompute status from the actual file data — never trust a stale
+  // `isGitModified` flag that may not have survived an app kill.
   for (const n of Object.values(nodeMap)) {
     if (n.type !== 'file') continue
-    if (n.isNew) items.push({ id: n.id, path: n.path, status: 'new' })
-    else if (n.isGitModified) items.push({ id: n.id, path: n.path, status: 'modified' })
+    if (n.isDeleted) {
+      items.push({ id: n.id, path: n.path, status: 'deleted' })
+      seen.add(n.id)
+    } else if (n.isNew) {
+      items.push({ id: n.id, path: n.path, status: 'new' })
+      seen.add(n.id)
+    } else if (n.content !== n.originalContent) {
+      items.push({ id: n.id, path: n.path, status: 'modified' })
+      seen.add(n.id)
+    }
+  }
+  // Also surface tombstones that are in the DB but missing from the in-memory
+  // map (e.g. right after a reload).
+  const deleted = await fsDb.listDeletedInProject(projectId)
+  for (const n of deleted) {
+    if (n.type !== 'file' || seen.has(n.id)) continue
+    items.push({ id: n.id, path: n.path, status: 'deleted' })
   }
   return items.sort((a, b) => a.path.localeCompare(b.path))
 }
@@ -488,7 +504,9 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
           result.created++
         } else {
           const remoteChanged = local.gitSha !== blob.sha
-          const locallyChanged = local.isNew || local.isGitModified
+          // Recompute "locally changed" from content so a stale isGitModified
+          // flag (e.g. after an app kill) can never let a pull overwrite edits.
+          const locallyChanged = local.isNew || local.isGitModified || local.content !== local.originalContent
           if (remoteChanged && locallyChanged) {
             const remoteContent = await gh.getFileContent(token, blob.url || '', blob.path)
             result.conflicts.push(nodePath)

@@ -42,7 +42,7 @@ import { mimeForPath } from '../utils/binary'
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
 import { replaceInText } from '../utils/projectSearch'
-import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorApi'
+import { goToPosition, replaceDocument, getWordAtCursor, getEditor } from '../utils/editorApi'
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
@@ -281,6 +281,7 @@ interface StoreState {
   createNode: (parentId: string | null, type: 'file' | 'folder', name: string) => Promise<FileNode | null>
   saveContent: (id: string, content: string) => void
   persistContent: (id: string) => Promise<void>
+  flushDirtyTabs: () => Promise<void>
   renameNode: (id: string, newName: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   duplicateNode: (id: string) => Promise<void>
@@ -410,10 +411,9 @@ export const useStore = create<StoreState>((set, get) => ({
   referencesOpen: false,
 
   bootstrap: async () => {
-    const [projects, settings, editorState, storedAuth] = await Promise.all([
+    const [projects, settings, storedAuth] = await Promise.all([
       projectsDb.listProjects(),
       settingsDb.loadSettings(),
-      editorDb.loadEditorState(),
       authService.loadStoredAuth(),
     ])
     let auth = storedAuth
@@ -439,7 +439,8 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     }
 
-    // Restore a project.
+    // Restore the most-recently-opened project (listProjects sorts by
+    // lastOpenedAt). `projects[0]` is the latest, not an arbitrary row.
     const active = projects.length ? projects[0] : null
     setBridgeOrigin(settings.termuxBridgeUrl)
     set({
@@ -447,20 +448,23 @@ export const useStore = create<StoreState>((set, get) => ({
       settings,
       auth,
       booted: true,
-      cursorPositions: editorState.cursorPositions || {},
-      scrollPositions: editorState.scrollPositions || {},
     })
     await get().setActiveProject(active?.id ?? null)
-    // Restore tabs and editor chrome state.
-    if (editorState.openTabIds.length) {
-      set({
-        openTabs: editorState.openTabIds,
-        activeTabId: editorState.activeTabId,
-        pinnedTabs: editorState.pinnedTabIds || [],
-        terminalOpen: editorState.terminalOpen,
-        terminalHeight: editorState.terminalHeight || 40,
-      })
-    }
+    // Restore tabs and editor chrome for THIS project (per-project state).
+    const editorState = await editorDb.loadEditorState(active?.id)
+    const nodeMap = get().nodeMap
+    const openTabIds = editorState.openTabIds.filter((id) => nodeMap[id]?.type === 'file')
+    const activeTabId = editorState.activeTabId && nodeMap[editorState.activeTabId]?.type === 'file' ? editorState.activeTabId : (openTabIds[0] ?? null)
+    const pinnedTabIds = (editorState.pinnedTabIds || []).filter((id) => nodeMap[id]?.type === 'file')
+    set({
+      openTabs: openTabIds,
+      activeTabId,
+      pinnedTabs: pinnedTabIds,
+      cursorPositions: editorState.cursorPositions || {},
+      scrollPositions: editorState.scrollPositions || {},
+      terminalOpen: editorState.terminalOpen,
+      terminalHeight: editorState.terminalHeight || 40,
+    })
     await get().loadHistory()
     await get().refreshGitStatus()
     void get().refreshTermuxStatus()
@@ -475,8 +479,15 @@ export const useStore = create<StoreState>((set, get) => ({
   setOffline: (v) => set({ offline: v }),
 
   setActiveProject: async (id) => {
+    const prev = get().activeProjectId
+    if (prev && prev !== id) {
+      // Flush unsaved edits and editor chrome before swapping out nodeMap, or
+      // the debounced save would look up the old ids against the new project.
+      await get().flushDirtyTabs()
+      await get().persistEditorState()
+    }
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [], inputWizard: null })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, cursorPositions: {}, scrollPositions: {}, expanded: {}, diagnostics: [], gitConflicts: [], inputWizard: null })
       return
     }
     await projectsDb.touchProject(id)
@@ -486,7 +497,20 @@ export const useStore = create<StoreState>((set, get) => ({
     const rootId = getRootNodeId(nodeMap)
     const lastSaved: Record<string, string> = {}
     for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved, inputWizard: null })
+    set({
+      activeProjectId: id,
+      nodeMap,
+      openTabs: [],
+      activeTabId: null,
+      pinnedTabs: [],
+      dirtyTabs: {},
+      cursorPositions: {},
+      scrollPositions: {},
+      expanded: rootId ? { [rootId]: true } : {},
+      gitStatus: [],
+      lastSaved,
+      inputWizard: null,
+    })
     await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
@@ -526,7 +550,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openFile: async (id) => {
     const node = get().nodeMap[id]
-    if (!node || node.type !== 'file') return
+    if (!node || node.type !== 'file' || node.isDeleted) return
     const dirty = get().dirtyTabs
     set((s) => ({
       openTabs: s.openTabs.includes(id) ? s.openTabs : insertTab(s.openTabs, s.pinnedTabs, id),
@@ -589,8 +613,32 @@ export const useStore = create<StoreState>((set, get) => ({
 
   renameNode: async (id, newName) => {
     try {
-      await fsDb.renameNode(id, newName)
+      // Flush unsaved edits first — rename refreshes the tree from IndexedDB.
+      await get().flushDirtyTabs()
+      const node = get().nodeMap[id]
+      if (!node) return
+      if (node.type === 'file' && !node.isNew && !node.isDeleted) {
+        // Renaming a tracked file = delete the old path + add the new path,
+        // which the commit flow already supports (sha:null deletion + new blob).
+        const projectId = node.projectId
+        const parentId = node.parentId
+        const oldName = node.name
+        const content = node.content
+        await fsDb.renameNode(id, newName)
+        // Tombstone the old path so the commit deletes it on GitHub.
+        const tombstone = await fsDb.createNode(projectId, parentId, oldName, 'file', content, {
+          isNew: false,
+          gitSha: node.gitSha,
+          originalContent: node.originalContent,
+        })
+        await fsDb.markTrackedDeleted(tombstone.id)
+        // The renamed file is now "new" so the commit adds it under its new path.
+        await db.files.update(id, { isNew: true, gitSha: null, originalContent: content, isGitModified: false })
+      } else {
+        await fsDb.renameNode(id, newName)
+      }
       await get().refreshProject()
+      await get().refreshGitStatus()
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -598,9 +646,23 @@ export const useStore = create<StoreState>((set, get) => ({
 
   deleteNode: async (id) => {
     const ids = await fsDb.collectSubtreeIds(id)
-    await fsDb.deleteNode(id)
-    const nodeMap = { ...get().nodeMap }
-    for (const i of ids) delete nodeMap[i]
+    const map = get().nodeMap
+    const nodes = ids.map((i) => map[i]).filter((n): n is FileNode => !!n)
+    // Tracked files (including ones already tombstoned) stay as tombstones so
+    // git keeps a deletion to commit; untracked files and all folders are
+    // hard-deleted (current behaviour).
+    const tombstoneIds = new Set(nodes.filter((n) => n.type === 'file' && !n.isNew).map((n) => n.id))
+    for (const n of nodes) {
+      if (tombstoneIds.has(n.id)) await fsDb.markTrackedDeleted(n.id)
+      else await fsDb.hardDelete(n.id)
+    }
+    // Tombstones stay in the map (explorer shows them struck through, the git
+    // panel lists them as deleted); everything else disappears.
+    const nodeMap = { ...map }
+    for (const n of nodes) {
+      if (tombstoneIds.has(n.id)) nodeMap[n.id] = { ...n, isDeleted: true }
+      else delete nodeMap[n.id]
+    }
     const dirtyTabs = { ...get().dirtyTabs }
     for (const i of ids) delete dirtyTabs[i]
     const openTabs = get().openTabs.filter((t) => !ids.includes(t))
@@ -608,6 +670,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (activeTabId && ids.includes(activeTabId)) activeTabId = openTabs[openTabs.length - 1] ?? null
     set({ nodeMap, dirtyTabs, openTabs, activeTabId })
     await get().persistEditorState()
+    await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
 
@@ -644,15 +707,33 @@ export const useStore = create<StoreState>((set, get) => ({
           node = get().nodeMap[id] || node
         }
       }
-      await fsDb.updateContent(id, node.content)
+      await fsDb.updateContent(id, node.content, node.isGitModified)
       set((s) => ({ dirtyTabs: { ...s.dirtyTabs, [id]: false }, lastSaved: { ...s.lastSaved, [id]: node.content } }))
       syncChannel?.postMessage({ source: TAB_SYNC_ID, type: 'files', projectId: get().activeProjectId })
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
   },
+  flushDirtyTabs: async () => {
+    const dirtyIds = Object.keys(get().dirtyTabs).filter((id) => get().dirtyTabs[id])
+    // Persist every dirty tab now — do NOT wait for the debounce. Commit, pull,
+    // upload, export, and page-hide all read content straight from IndexedDB.
+    await Promise.all(dirtyIds.map((id) => get().persistContent(id)))
+  },
 
   persistEditorState: async () => {
+    // Capture the live caret/scroll synchronously so a pagehide right after a
+    // keystroke still restores the editor position.
+    const id = get().activeTabId
+    const view = getEditor()
+    if (id && view) {
+      const pos = view.state.selection.main.head
+      const line = view.state.doc.lineAt(pos)
+      set((s) => ({
+        cursorPositions: { ...s.cursorPositions, [id]: { line: line.number, col: pos - line.from + 1 } },
+        scrollPositions: { ...s.scrollPositions, [id]: view.scrollDOM.scrollTop },
+      }))
+    }
     const state: EditorPersistState = {
       openTabIds: get().openTabs,
       activeTabId: get().activeTabId,
@@ -662,7 +743,7 @@ export const useStore = create<StoreState>((set, get) => ({
       terminalOpen: get().terminalOpen,
       terminalHeight: get().terminalHeight,
     }
-    await editorDb.saveEditorState(state)
+    await editorDb.saveEditorState(state, get().activeProjectId)
   },
 
   saveActiveEditorCursor: (id, cursor) => {
@@ -938,6 +1019,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
+    await get().flushDirtyTabs()
     set({ uploading: true })
     try {
       const result = await gitService.uploadProjectToGitHub(pid, opts, (p) => set({ cloneProgress: p }))
@@ -971,6 +1053,8 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid || !message.trim()) return
+    // Commit reads content from IndexedDB, so flush the debounced edits first.
+    await get().flushDirtyTabs()
     try {
       const sha = await gitService.commitChanges(pid, { message: message.trim(), includeIds, push })
       await get().refreshProject()
@@ -1062,6 +1146,8 @@ export const useStore = create<StoreState>((set, get) => ({
   closeDiff: () => set({ diffFileId: null }),
   discardFileChanges: async (fileId) => {
     await gitService.discardChanges(fileId)
+    // The file is back to its last-synced content — it is no longer dirty.
+    get().setDirty(fileId, false)
     await get().refreshProject()
     await get().refreshGitStatus()
     set({ diffFileId: null })
@@ -1071,6 +1157,9 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
+    // Pull compares local files against the remote, so flush edits first —
+    // otherwise a debounced save could be mistaken for a clean file.
+    await get().flushDirtyTabs()
     set({ pulling: true })
     try {
       const result = await gitService.pullChanges(pid, (p) => set({ cloneProgress: p }))
@@ -1409,6 +1498,8 @@ export const useStore = create<StoreState>((set, get) => ({
     const pid = get().activeProjectId
     const proj = get().projects.find((p) => p.id === pid)
     if (!pid || !proj) { get().showToast('Open a project first', 'info'); return }
+    // The ZIP is built from IndexedDB, so flush debounced edits first.
+    await get().flushDirtyTabs()
     try {
       await downloadProjectZip(pid, proj.name)
       get().showToast('Project exported as ZIP', 'success')
