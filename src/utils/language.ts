@@ -92,7 +92,10 @@ export const LANGUAGE_PROFILES: Record<string, LanguageProfile> = {
     judge0Id: 93, termuxKey: 'javascript', execute: 'browser', workspace: true, workspaceExts: ['.js', '.mjs', '.cjs', '.json'],
   }),
   typescript: profile('typescript', 'TypeScript', {
-    judge0Id: 94, termuxKey: 'typescript', execute: 'browser', workspace: true, workspaceExts: ['.ts', '.tsx', '.js', '.json'],
+    // TypeScript has no honest in-browser runner (type annotations are a syntax
+    // error to the JS sandbox), so it goes through Termux `ts-node` or Judge0 —
+    // never a fake local "success".
+    judge0Id: 94, termuxKey: 'typescript', execute: 'termux', workspace: true, workspaceExts: ['.ts', '.tsx', '.js', '.json'],
   }),
   c: profile('c', 'C', {
     judge0Id: 50, termuxKey: 'c', execute: 'termux', workspace: true, workspaceExts: ['.c', '.h'],

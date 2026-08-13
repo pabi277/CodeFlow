@@ -19,22 +19,37 @@ async function main() {
   const available = await checkTermuxBridge()
   ok(typeof available === 'boolean', 'checkTermuxBridge returns a boolean (no bridge running here)')
 
-  console.log('\n[JavaScript -> local runner]')
+  console.log('\n[JavaScript -> local sandbox]')
   const js = await executeCode('console.log("hi", 2+2)', 'hello.js', '', opts)
-  ok(js.source === 'local', `JS uses local runner (got ${js.source})`)
+  ok(js.source === 'local', `JS uses the local sandbox (got ${js.source})`)
   ok(js.stdout.includes('hi 4'), 'JS stdout correct')
 
-  console.log('\n[Python -> no bridge, no key -> mock]')
-  const py = await executeCode('print("x")', 'main.py', '', opts)
-  ok(py.source === 'mock', `Python falls back to mock (got ${py.source})`)
+  console.log('\n[JavaScript -> sandbox cannot reach host globals]')
+  const iso = await executeCode(
+    'console.log("fetch=" + typeof fetch); console.log("process=" + typeof process); console.log("indexedDB=" + typeof indexedDB); console.log("localStorage=" + typeof localStorage)',
+    'iso.js', '', opts,
+  )
+  ok(iso.source === 'local', 'isolation probe runs locally')
+  ok(iso.stdout.includes('fetch=undefined'), `sandbox has no fetch (got ${JSON.stringify(iso.stdout)})`)
+  ok(iso.stdout.includes('process=undefined'), 'sandbox has no Node process')
+  ok(iso.stdout.includes('indexedDB=undefined'), 'sandbox has no indexedDB')
+  ok(iso.stdout.includes('localStorage=undefined'), 'sandbox has no localStorage')
 
-  console.log('\n[TypeScript -> local runner]')
+  console.log('\n[Python -> no bridge, no key -> honest failure]')
+  const py = await executeCode('print("x")', 'main.py', '', opts)
+  ok(py.success === false, `Python without Termux/Judge0 is a failure (success=${py.success})`)
+  ok(py.source === 'local', `Python failure uses a truthful source (got ${py.source})`)
+  ok(py.stdout === '', 'Python failure does not fake stdout')
+  ok(/Termux|Judge0/i.test(py.stderr), `Python failure explains how to run (stderr: ${py.stderr})`)
+
+  console.log('\n[TypeScript -> no bridge, no key -> honest failure]')
   const ts = await executeCode('const n: number = 1; console.log(n)', 'app.ts', '', opts)
-  ok(ts.source === 'local', 'TS uses local runner')
+  ok(ts.success === false, 'TS without Termux/Judge0 is a failure (not a fake local run)')
+  ok(/Termux|Judge0/i.test(ts.stderr), `TS failure explains how to run (stderr: ${ts.stderr})`)
 
   console.log('\n[HTML -> preview hint, no Termux]')
   const html = await executeCode('<h1>hi</h1>', 'index.html', '', opts)
-  ok(html.source === 'local', `HTML does not hit Termux/mock (got ${html.source})`)
+  ok(html.source === 'local', `HTML does not hit Termux (got ${html.source})`)
   ok(/preview/i.test(html.stdout), 'HTML run points at Preview')
 
   console.log('\n[JSON -> not executable]')

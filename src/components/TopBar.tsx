@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, runTargetNode } from '../store/useStore'
 import { openFind } from '../utils/editorApi'
 import { IconButton } from './Shared/IconButton'
 import { BottomSheet } from './Shared/BottomSheet'
@@ -44,6 +44,16 @@ export function TopBar() {
   const canPreview = !!(activeFile && isPreviewable(activeFile.path))
   const canHtml = !!(activeFile && isHtmlPreview(activeFile.path))
 
+  // The file Run will actually execute (respects the project's main-file override).
+  const runLabel = useStore((s) => {
+    const node = runTargetNode(s)
+    if (!node) return 'Run'
+    const pid = s.activeProjectId
+    const main = pid ? s.settings.runConfiguration[pid] : undefined
+    if (main && s.nodeMap[main]?.type === 'file' && main !== s.activeTabId) return `Run ${node.name}`
+    return 'Run'
+  })
+
   return (
     <>
       <div className="flex items-center gap-1 border-b border-border/60 bg-surface/95 px-2 py-1.5 shadow-lift dark:bg-panel">
@@ -84,7 +94,7 @@ export function TopBar() {
             className="flex h-11 items-center gap-2 rounded-lg bg-[#2ea043] px-4 font-semibold text-white transition-all duration-150 hover:bg-[#2c974b] active:scale-[0.98] active:opacity-90"
           >
             {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
-            <span className="text-[13px]">Run</span>
+            <span className="text-[13px]">{runLabel}</span>
           </button>
         )}
         <IconButton label="More" onClick={() => setMenuOpen(true)}>

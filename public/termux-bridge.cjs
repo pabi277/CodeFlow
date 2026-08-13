@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * CodeFlow — Termux local execution + preview server v2.0
+ * CodeFlow — Termux local execution + preview server v2.2
  *
  * HTTP server on 127.0.0.1:8080:
- *   GET  /health          — liveness + { preview: true }
+ *   GET  /health          — liveness + { preview: true, interactive: true }
  *   POST /sync            — write the open project to a workspace
  *   GET  /preview/*       — serve that workspace (HTML/CSS/JS/images)
  *   POST /execute         — run a language; optional `files` + `entry`
  *                           so Python/JS can import the rest of the project
+ *   GET  /poll?session=…  — poll an interactive session's output
+ *   POST /stdin           — write a line to an interactive session
+ *   POST /kill            — stop an interactive session
  *
  * Run it in Termux:
  *   node termux-bridge.js
@@ -29,7 +32,7 @@ const os = require('os')
 const path = require('path')
 const fs = require('fs')
 
-const VERSION = '2.1'
+const VERSION = '2.2'
 const HOST = '127.0.0.1'
 const PORT = 8080
 const EXEC_TIMEOUT_MS = 10000
@@ -195,7 +198,7 @@ function writeUnbufHelper() {
   return p
 }
 
-function spawnInteractive(cmdArgs, cwd, extraEnv) {
+function spawnInteractive(cmdArgs, cwd, extraEnv, cleanup) {
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
   const child = spawn(cmdArgs[0], cmdArgs.slice(1), {
     cwd: cwd || TMP_DIR,
@@ -205,17 +208,20 @@ function spawnInteractive(cmdArgs, cwd, extraEnv) {
   const sess = {
     id, child, stdout: '', stderr: '', done: false, code: null, timedOut: false, started: Date.now(),
   }
+  const runCleanup = () => { if (typeof cleanup === 'function') { try { cleanup() } catch { /* ignore */ } } }
   child.stdout.on('data', (d) => { sess.stdout = appendStream(sess.stdout, d) })
   child.stderr.on('data', (d) => { sess.stderr = appendStream(sess.stderr, d) })
   child.on('error', (err) => {
     sess.stderr = appendStream(sess.stderr, err.message)
     sess.done = true
     sess.code = 1
+    runCleanup()
   })
   child.on('close', (code) => {
     sess.done = true
     sess.code = code
     clearTimeout(sess.timer)
+    runCleanup()
   })
   sess.timer = setTimeout(() => {
     sess.timedOut = true
@@ -299,12 +305,18 @@ async function executeLanguage(language, code, stdin, files, entry, interactive)
     ? { PYTHONPATH: cwd, NODE_PATH: cwd }
     : undefined
 
+  // Interactive sessions consume their temp artifact asynchronously, so the
+  // file must live until the session ends — the cleanup callback removes it.
+  const cleanupTemp = () => {
+    try { fs.unlinkSync(file) } catch { /* ignore */ }
+  }
+
   try {
     if (runner.kind === 'script') {
       const runCmd = runner.run.map((a) => (a === 'BIN' || a === runner.check ? bin : a))
       const cmd = [...runCmd, file]
       if (interactive) {
-        const sess = spawnInteractive(cmd, cwd, extraEnv)
+        const sess = spawnInteractive(cmd, cwd, extraEnv, !hasFiles ? cleanupTemp : undefined)
         if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
         return { session: sess }
       }
@@ -314,7 +326,7 @@ async function executeLanguage(language, code, stdin, files, entry, interactive)
 
     if (runner.kind === 'go') {
       if (interactive) {
-        const sess = spawnInteractive(['go', 'run', file], cwd, extraEnv)
+        const sess = spawnInteractive(['go', 'run', file], cwd, extraEnv, !hasFiles ? cleanupTemp : undefined)
         if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
         return { session: sess }
       }
@@ -331,7 +343,10 @@ async function executeLanguage(language, code, stdin, files, entry, interactive)
         return { success: false, stdout: '', stderr: c.stderr, compileError: true, timedOut: c.timedOut }
       }
       if (interactive) {
-        const sess = spawnInteractive([out], cwd)
+        const sess = spawnInteractive([out], cwd, undefined, () => {
+          try { fs.unlinkSync(out) } catch { /* ignore */ }
+          if (!hasFiles) cleanupTemp()
+        })
         if (stdin) try { sess.child.stdin.write(stdin) } catch { /* ignore */ }
         return { session: sess }
       }
@@ -369,7 +384,9 @@ async function executeLanguage(language, code, stdin, files, entry, interactive)
       return { success: r.code === 0, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, exitCode: r.code }
     }
   } finally {
-    if (!hasFiles) {
+    // Non-interactive runs are done by now; interactive sessions clean up their
+    // own temp file when the process exits (see cleanupTemp above).
+    if (!hasFiles && !interactive) {
       try { fs.unlinkSync(file) } catch { /* ignore */ }
     }
   }
@@ -515,8 +532,12 @@ const server = http.createServer((req, res) => {
         const t0 = Date.now()
         const extra = files && typeof files === 'object' ? ` | files=${Object.keys(files).length}` : ''
         console.log(`[execute] language=${language} | chars=${code.length}${extra}`)
-        executeLanguage(language, code, stdin, files, entry)
+        executeLanguage(language, code, stdin, files, entry, !!interactive)
           .then((r) => {
+            if (r.session) {
+              setTimeout(() => send(res, 200, sessionPayload(r.session)), 80)
+              return
+            }
             const executionTime = Date.now() - t0
             let status = r.success
             let outStderr = r.stderr || ''

@@ -1,12 +1,17 @@
 import { db } from './db'
-import { DEFAULT_SETTINGS } from '../config/defaults'
+import { DEFAULT_SETTINGS, shouldDefaultWordWrapOn } from '../config/defaults'
 import type { AppSettings } from '../types'
 
 const KEY = 'app_settings'
 
 export async function loadSettings(): Promise<AppSettings> {
   const row = await db.settings.get(KEY)
-  return { ...DEFAULT_SETTINGS, ...(row?.value as Partial<AppSettings>) }
+  if (row?.value) {
+    return { ...DEFAULT_SETTINGS, ...(row.value as Partial<AppSettings>) }
+  }
+  // First launch: derive a device-appropriate word-wrap default (touch/narrow),
+  // then honour the toggle forever after.
+  return { ...DEFAULT_SETTINGS, wordWrap: shouldDefaultWordWrapOn() }
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
