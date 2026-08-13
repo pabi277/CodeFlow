@@ -69,6 +69,17 @@ function main() {
   ok(dataUrlBase64('plain text') === null, 'rejects plain text')
   ok(dataUrlBase64('') === null, 'rejects empty string')
 
+  console.log('\n[data URL edge cases]')
+  const withParams = dataUrlBase64('data:image/png;charset=utf-8;base64,QUJD+/8=')
+  ok(!!withParams && withParams.mime === 'image/png;charset=utf-8' && withParams.data === 'QUJD+/8=', 'keeps mime parameters and unpadded payload symbols')
+  const longHead = 'data:application/octet-stream;name="a-very-long-parameter-name-that-stretches-the-header-past-eighty-characters-just-to-be-safe";base64,AAECAw=='
+  const longHeadRes = dataUrlBase64(longHead)
+  ok(!!longHeadRes && longHeadRes.data === 'AAECAw==', 'extracts payload when the header exceeds the old 80-char probe')
+  const commaMime = dataUrlBase64('data:foo,bar;base64,baz')
+  ok(commaMime === null, 'rejects mime parts containing commas')
+  const textLike = dataUrlBase64('data:text/plain;base64,SGVsbG8=')
+  ok(!!textLike && textLike.data === 'SGVsbG8=', 'extracts any mime that carries a base64 payload')
+
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
   process.exit(fail ? 1 : 0)
 }

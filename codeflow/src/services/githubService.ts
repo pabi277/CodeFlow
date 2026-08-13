@@ -107,11 +107,14 @@ export async function createBlob(token: string, owner: string, repo: string, con
   setToken(token)
   // Binary content is stored locally either as a data URL or as raw latin1
   // bytes (cloned from GitHub). Encode it byte-for-byte instead of
-  // round-tripping it through UTF-8.
-  const dataUrl = dataUrlBase64(content)
+  // round-tripping it through UTF-8. The data-URL branch only applies to
+  // binary paths so a text file that merely *contains* data-URL-looking text
+  // is still committed as text.
+  const binaryPath = isBinaryPath(path) || isImagePath(path)
+  const dataUrl = binaryPath ? dataUrlBase64(content) : null
   const encoded = dataUrl
     ? dataUrl.data
-    : isBinaryPath(path) || isImagePath(path)
+    : binaryPath
       ? bytesToBase64(content)
       : textToBase64(content)
   const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
