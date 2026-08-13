@@ -86,7 +86,7 @@ export async function cloneRepository(
     await Promise.all(
       batch.map(async (blob) => {
         const parent = pathToId['/' + dirnameRepo(blob.path)] ?? root.id
-        const content = await gh.getFileContent(token, blob.url || '')
+        const content = await gh.getFileContent(token, blob.url || '', blob.path)
         await fsDb.createNode(project.id, parent, basenameRepo(blob.path), 'file', content, {
           isNew: false,
           gitSha: blob.sha,
@@ -127,7 +127,7 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
     if (node.isDeleted) {
       entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: null })
     } else {
-      const blobSha = await gh.createBlob(token, owner, repo, node.content)
+      const blobSha = await gh.createBlob(token, owner, repo, node.content, node.path)
       blobShas[id] = blobSha
       entries.push({ path: toRepoPath(node.path), mode: '100644', type: 'blob', sha: blobSha })
     }
@@ -212,7 +212,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
         if (!local) {
           // new remote file
           const parent = await ensureFolders(blob.path)
-          const content = await gh.getFileContent(token, blob.url || '')
+          const content = await gh.getFileContent(token, blob.url || '', blob.path)
           await fsDb.createNode(projectId, parent, basenameRepo(blob.path), 'file', content, {
             isNew: false,
             gitSha: blob.sha,
@@ -225,7 +225,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
           if (remoteChanged && locallyChanged) {
             result.conflicts.push(nodePath)
           } else if (remoteChanged) {
-            const content = await gh.getFileContent(token, blob.url || '')
+            const content = await gh.getFileContent(token, blob.url || '', blob.path)
             await fsDb.syncGitFile(local.id, content, blob.sha)
             result.updated++
           }
