@@ -4,6 +4,15 @@
 
 import axios from 'axios'
 import { API } from '../config/api'
+import {
+  base64ToBytes,
+  base64ToText,
+  bytesToBase64,
+  dataUrlBase64,
+  isBinaryPath,
+  isImagePath,
+  textToBase64,
+} from '../utils/encoding'
 import type { GitHubRepo, GitHubTreeResponse, GitHubUser, GitHubBranch, GitHubCommit, GitHubPullRequest } from '../types'
 
 const client = axios.create({ baseURL: API.githubApiBase, timeout: 30000 })
@@ -35,11 +44,11 @@ export async function getTree(token: string, owner: string, repo: string, branch
   return data
 }
 
-export async function getFileContent(token: string, url: string): Promise<string> {
+export async function getFileContent(token: string, url: string, path = ''): Promise<string> {
   setToken(token)
   const { data } = await client.get<{ content?: string; content64?: string }>(url)
   if (typeof data === 'string') return data
-  if (data.content) return decodeBase64(data.content)
+  if (data.content) return decodeBase64(data.content, path)
   return JSON.stringify(data)
 }
 
@@ -57,9 +66,14 @@ export async function getRateLimit(token: string): Promise<{ remaining: number; 
   }
 }
 
-function decodeBase64(s: string): string {
+/**
+ * Decode GitHub's base64 response. Text files are UTF-8 decoded so emoji and
+ * other non-ASCII characters round-trip correctly; binary files are kept as
+ * raw latin1 bytes, matching how binary content is stored locally.
+ */
+function decodeBase64(s: string, path = ''): string {
   try {
-    return atob(s.replace(/\s/g, ''))
+    return isBinaryPath(path) || isImagePath(path) ? base64ToBytes(s) : base64ToText(s)
   } catch {
     return s
   }
@@ -89,10 +103,19 @@ export async function listPullRequests(token: string, owner: string, repo: strin
   return data
 }
 
-export async function createBlob(token: string, owner: string, repo: string, content: string): Promise<string> {
+export async function createBlob(token: string, owner: string, repo: string, content: string, path = ''): Promise<string> {
   setToken(token)
+  // Binary content is stored locally either as a data URL or as raw latin1
+  // bytes (cloned from GitHub). Encode it byte-for-byte instead of
+  // round-tripping it through UTF-8.
+  const dataUrl = dataUrlBase64(content)
+  const encoded = dataUrl
+    ? dataUrl.data
+    : isBinaryPath(path) || isImagePath(path)
+      ? bytesToBase64(content)
+      : textToBase64(content)
   const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
-    content: btoa(unescape(encodeURIComponent(content))),
+    content: encoded,
     encoding: 'base64',
   })
   return data.sha

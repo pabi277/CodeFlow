@@ -1,6 +1,7 @@
 import { useStore } from '../store/useStore'
 import { detectLanguage, languageName } from '../utils/language'
 import { detectLineEnding, lineEndingLabel, type LineEnding } from '../utils/lineEnding'
+import { isBinaryPath, isDataUrl, isImagePath } from '../utils/binary'
 import { VscError, VscWarning } from 'react-icons/vsc'
 
 export function StatusBar() {
@@ -21,6 +22,8 @@ export function StatusBar() {
   const warnings = diagnostics.filter((d) => d.severity === 'warning').length
   const indent = settings.indentWithSpaces ? `Spaces: ${settings.tabSize}` : `Tabs: ${settings.tabSize}`
   const ending = file ? detectLineEnding(file.content) : 'lf'
+  const binary = !!file && (isBinaryPath(file.path) || isImagePath(file.path) || isDataUrl(file.content))
+  const encodingLabel = binary ? 'Binary' : 'UTF-8'
   const cycleEnding = () => {
     const order: LineEnding[] = ['lf', 'crlf', 'cr']
     const next = order[(order.indexOf(ending) + 1) % order.length]
@@ -37,7 +40,9 @@ export function StatusBar() {
       <button onClick={cycleEnding} className="shrink-0 rounded px-1 hover:text-ink" aria-label="Toggle line ending">
         {lineEndingLabel(ending)}
       </button>
-      <span className="shrink-0">UTF-8</span>
+      <span className="shrink-0" title={binary ? 'Binary file' : 'File encoding'}>
+        {encodingLabel}
+      </span>
       <button
         onClick={() => openBottomPanel('problems')}
         className="ml-auto flex shrink-0 items-center gap-2 rounded px-1 hover:text-ink"

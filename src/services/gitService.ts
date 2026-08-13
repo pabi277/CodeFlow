@@ -120,7 +120,7 @@ export async function cloneRepository(
     await Promise.all(
       batch.map(async (blob) => {
         const parent = pathToId['/' + dirnameRepo(blob.path)] ?? root.id
-        const content = await gh.getFileContent(token, blob.url || '')
+        const content = await gh.getFileContent(token, blob.url || '', blob.path)
         await fsDb.createNode(project.id, parent, basenameRepo(blob.path), 'file', content, {
           isNew: false,
           gitSha: blob.sha,
@@ -186,7 +186,7 @@ async function pushInitialCommitToEmptyRepo(
     const baseCommit = await gh.getCommit(token, owner, repo, ref.object.sha)
     const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
     for (const f of rest) {
-      const blobSha = await gh.createBlob(token, owner, repo, f.content)
+      const blobSha = await gh.createBlob(token, owner, repo, f.content, f.path)
       blobShas[f.id] = blobSha
       entries.push({ path: toRepoPath(f.path), mode: '100644', type: 'blob', sha: blobSha })
     }
@@ -252,7 +252,7 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
       entries.push({ path: toRepoPath(d.path), mode: '100644', type: 'blob', sha: null })
     }
     for (const a of additions) {
-      const blobSha = await gh.createBlob(token, owner, repo, a.content)
+      const blobSha = await gh.createBlob(token, owner, repo, a.content, a.path)
       blobShas[a.id] = blobSha
       entries.push({ path: toRepoPath(a.path), mode: '100644', type: 'blob', sha: blobSha })
     }
@@ -479,7 +479,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
         if (!local) {
           // new remote file
           const parent = await ensureFolders(blob.path)
-          const content = await gh.getFileContent(token, blob.url || '')
+          const content = await gh.getFileContent(token, blob.url || '', blob.path)
           await fsDb.createNode(projectId, parent, basenameRepo(blob.path), 'file', content, {
             isNew: false,
             gitSha: blob.sha,
@@ -490,7 +490,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
           const remoteChanged = local.gitSha !== blob.sha
           const locallyChanged = local.isNew || local.isGitModified
           if (remoteChanged && locallyChanged) {
-            const remoteContent = await gh.getFileContent(token, blob.url || '')
+            const remoteContent = await gh.getFileContent(token, blob.url || '', blob.path)
             result.conflicts.push(nodePath)
             result.conflictDetails.push({
               fileId: local.id,
@@ -500,7 +500,7 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
               remoteSha: blob.sha,
             })
           } else if (remoteChanged) {
-            const content = await gh.getFileContent(token, blob.url || '')
+            const content = await gh.getFileContent(token, blob.url || '', blob.path)
             await fsDb.syncGitFile(local.id, content, blob.sha)
             result.updated++
           }

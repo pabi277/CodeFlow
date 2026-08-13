@@ -2,7 +2,7 @@
 // add to the bundle when the user actually exports or imports a project.
 
 import { listAllInProject } from '../db/files'
-import { fileToStoredContent, isBinaryPath, isDataUrl, isImagePath, mimeForPath } from './binary'
+import { dataUrlBase64, fileToStoredContent, isBinaryPath, isDataUrl, isImagePath, mimeForPath } from './binary'
 
 /**
  * Convert a stored file content (text, or a data: URL for binary files) into
@@ -23,6 +23,24 @@ export function storedContentToBlob(content: string, path: string): Blob {
   return new Blob([content], { type: mimeForPath(path) })
 }
 
+type ZipLike = { file: (name: string, data: string, opts?: { base64?: boolean; binary?: boolean }) => unknown }
+
+/**
+ * Write one stored file into a zip archive. Binary content is stored either
+ * as a data URL (imported via ZIP / file picker) or as raw latin1 bytes
+ * (cloned from GitHub); write it back as bytes so it round-trips exactly,
+ * while text files are written as UTF-8 text. The data-URL branch only
+ * applies to binary paths so a text file that merely contains
+ * data-URL-looking text exports as text.
+ */
+function addStoredFile(zip: ZipLike, name: string, content: string, path: string): void {
+  const binaryPath = isBinaryPath(path) || isImagePath(path)
+  const dataUrl = binaryPath ? dataUrlBase64(content || '') : null
+  if (dataUrl) zip.file(name, dataUrl.data, { base64: true })
+  else if (binaryPath) zip.file(name, content || '', { binary: true })
+  else zip.file(name, content || '')
+}
+
 /**
  * Build a .zip archive of a folder's subtree (or a single file). File paths
  * inside the archive are relative to the given folder so unzipping yields a
@@ -39,7 +57,7 @@ export async function buildSubtreeZip(projectId: string, folderPath: string): Pr
     if (f.type !== 'file' || f.isDeleted) continue
     const rel = f.path.replace(/^\//, '')
     if (prefix && !rel.startsWith(prefix)) continue
-    zip.file(rel.slice(prefix.length) || f.name, f.content || '')
+    addStoredFile(zip, rel.slice(prefix.length) || f.name, f.content, f.path)
   }
   return zip.generateAsync({ type: 'blob', compression: 'STORE' })
 }
@@ -57,7 +75,8 @@ export async function buildProjectZip(projectId: string): Promise<Blob> {
   for (const f of files) {
     if (f.type !== 'file' || f.isDeleted) continue
     const rel = f.path.replace(/^\//, '')
-    if (rel) zip.file(rel, f.content || '')
+    if (!rel) continue
+    addStoredFile(zip, rel, f.content, f.path)
   }
   return zip.generateAsync({ type: 'blob', compression: 'STORE' })
 }
