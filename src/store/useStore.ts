@@ -806,12 +806,10 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('A run is already in progress', 'info')
       return
     }
-    let id = s.activeTabId
-    const pid = s.activeProjectId
-    const configuredMain = pid ? s.settings.runConfiguration[pid] : undefined
-    if (configuredMain && s.nodeMap[configuredMain]) id = configuredMain
-    const node = id ? s.nodeMap[id] : undefined
-    if (!node || node.type !== 'file') {
+    // Run the active file unless the project has a configured main file — the
+    // green Run button shows the override's name in that case (see TopBar).
+    const node = runTargetNode(s)
+    if (!node) {
       get().showToast('Open a file to run it', 'info')
       return
     }
@@ -1663,6 +1661,22 @@ function orderTabs(openTabs: string[], pinnedTabs: string[]): string[] {
 function getRootNodeId(nodeMap: Record<string, FileNode>): string | null {
   const root = Object.values(nodeMap).find((n) => n.path === '/')
   return root ? root.id : null
+}
+
+/** The file Run will execute: the project's configured main file when set (and
+ *  it still exists), otherwise the active tab. Shared by the store and TopBar so
+ *  the button label always matches what actually runs. */
+export function runTargetNode(s: {
+  activeProjectId: string | null
+  activeTabId: string | null
+  nodeMap: Record<string, FileNode>
+  settings: AppSettings
+}): FileNode | undefined {
+  const configuredMain = s.activeProjectId ? s.settings.runConfiguration[s.activeProjectId] : undefined
+  const id = configuredMain && s.nodeMap[configuredMain]?.type === 'file' ? configuredMain : s.activeTabId
+  if (!id) return undefined
+  const node = s.nodeMap[id]
+  return node?.type === 'file' ? node : undefined
 }
 
 async function findChildByName(projectId: string, parentId: string | null, name: string, type: 'file' | 'folder'): Promise<string | null> {

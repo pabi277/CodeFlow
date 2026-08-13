@@ -20,10 +20,14 @@ tiny HTTP bridge that you run inside Termux. v2 also **syncs the open project** 
 
 - HTML preview loads real CSS/JS/images from `http://127.0.0.1:8080/preview/…`
 - Python / Node can `import` other files in the project
+- Programs that read `input()` / `scanf` / `stdin` can be typed into live (interactive sessions)
 
 ```
 CodeFlow (browser)  ──HTTP (localhost:8080)──▶  termux-bridge.js
         │                                         ├── POST /execute  → python/node/gcc/java (full project)
+        │                                         ├── GET  /poll     → interactive session output
+        │                                         ├── POST /stdin    → write a line to a session
+        │                                         ├── POST /kill     → stop a session
         │                                         ├── POST /sync     → write workspace
         └── iframe / new tab  ──GET /preview/*──▶ └── static file server
 ```
@@ -77,7 +81,11 @@ Paste the script, then save with `Ctrl+X`, `Y`, `Enter`.
 
 ### 4. Run the bridge
 
+If you have run the bridge before, stop the old copy first so the new v2.2 script
+takes over:
+
 ```
+pkill -f termux-bridge
 node termux-bridge.js
 ```
 
@@ -96,26 +104,28 @@ Go to **Settings → Execution → Termux Integration → Refresh**. The status 
 
 ## Using it
 
-- JavaScript / TypeScript run in the browser unless the project has sibling modules **and**
-  Termux is connected (then Node resolves `require` / `import`).
-- Other languages (Python, C, C++, Java, Bash, ...) run in **Termux when the bridge is running**.
-  The whole project is synced first, so `from util import greet` works.
+- JavaScript runs locally in a sandboxed iframe; with sibling modules **and** Termux connected,
+  Node resolves `require` / `import`.
+- TypeScript and other languages (Python, C, C++, Java, Bash, ...) run in **Termux when the
+  bridge is running**. The whole project is synced first, so `from util import greet` works.
+- Programs that read from stdin (`input()`, `scanf`, `Scanner`, …) run as interactive sessions:
+  type each answer in the terminal and press Send.
 - HTML preview uses the Termux live server when the v2 bridge is running (Open in new tab
   is optional). Without Termux, CSS/JS are bundled into the iframe.
-- If the bridge is not running, CodeFlow falls back to **Judge0** (if a key is configured) then to
-  **mock output**.
+- If the bridge is not running, CodeFlow falls back to **Judge0** (if a key is configured). If
+  neither is available, Run reports an honest **failure** — it never pretends the code ran.
 - After a run, the terminal shows a colored badge: **"Ran in Termux"** (green),
-  "Ran locally" (blue), "Ran on Judge0" (purple), or "Mock output" (gray).
+  "Ran locally" (blue), or "Ran on Judge0" (purple).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| "Termux bridge not running" on Vercel (HTTPS) | You must open CodeFlow **on the phone** (not a PC). Copy the **latest** bridge from Settings, restart `node termux-bridge.js`, tap **Refresh**, and **Allow local network access** if Chrome prompts. Old bridge scripts reject Chrome’s private-network preflight. |
+| "Termux bridge not running" on Vercel (HTTPS) | You must open CodeFlow **on the phone** (not a PC). Copy the **latest** bridge from Settings (v2.2), run `pkill -f termux-bridge`, restart `node termux-bridge.js`, tap **Refresh**, and **Allow local network access** if Chrome prompts. Old bridge scripts reject Chrome’s private-network preflight. |
 | "Termux bridge not running" | Make sure `node termux-bridge.js` is still running in Termux, then tap **Refresh**. |
 | "Port 8080 in use" | Kill the old process: `pkill -f termux-bridge`, then run again. |
 | "python3 is not installed" | The bridge message tells you the exact install command (e.g. `pkg install python`). |
-| Bridge worked, then stopped | Restart it with `node termux-bridge.js`. CodeFlow auto-falls back to Judge0/mock meanwhile. |
+| Bridge worked, then stopped | Restart it with `pkill -f termux-bridge && node termux-bridge.js`. CodeFlow auto-falls back to Judge0 meanwhile. |
 | Executes but times out | Code is capped at 10 seconds in the bridge (adjustable in the script). |
 
 ## Security notes

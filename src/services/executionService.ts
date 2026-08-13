@@ -1,9 +1,11 @@
 // Unified execution service with a per-language priority chain:
 //   preview/none -> short message (never hit Termux)
-//   JS/TS        -> browser sandbox, unless sibling modules + Termux
-//   termux langs -> Termux (filtered workspace) -> Judge0 -> mock
-//   judge0 langs -> Judge0 -> mock
-import { runLocalJavaScript, mockSample } from './mockRunner'
+//   JS           -> sandboxed iframe runner, unless sibling modules + Termux
+//   termux langs -> Termux (filtered workspace) -> Judge0 -> honest failure
+//   judge0 langs -> Judge0 -> honest failure
+// There is no mock path: if a language cannot run, the result is `success:false`
+// with a clear message, never a fake successful stdout.
+import { runLocalJavaScript } from './mockRunner'
 import * as judge0 from './judge0Service'
 import {
   judge0IdForLanguage,
@@ -17,7 +19,7 @@ import {
 import { getBridgeOrigin, setBridgeOrigin, normalizeBridgeOrigin } from './bridgeUrl'
 import type { ExecStatus } from '../types'
 
-export type ExecutionSource = 'local' | 'termux' | 'judge0' | 'mock'
+export type ExecutionSource = 'local' | 'termux' | 'judge0'
 
 export interface ExecuteResult {
   success: boolean
@@ -342,7 +344,7 @@ export async function executeCode(
           status: r.status, executionTime: r.timeMs, memoryKb: r.memoryKb, source: 'local',
         }
       }
-      // Fall through to Judge0 / mock instead of hanging the UI.
+      // Fall through to Judge0 / the honest failure instead of hanging the UI.
     }
   }
 
@@ -365,10 +367,17 @@ export async function executeCode(
     }
   }
 
-  const m = mockSample(languageName(lang), code)
+  // Nothing can actually run this language right now. Be honest: a failed run,
+  // never a fake successful stdout — friends must not think the code executed.
   return {
-    success: true, stdout: m.stdout, stderr: m.stderr, compileOutput: m.compileOutput,
-    status: m.status, executionTime: m.timeMs, memoryKb: m.memoryKb, source: 'mock',
+    success: false,
+    stdout: '',
+    stderr: `Connect Termux or add a Judge0 key to run ${languageName(lang)}.`,
+    compileOutput: '',
+    status: 'system_error',
+    executionTime: 0,
+    memoryKb: 0,
+    source: 'local',
   }
 }
 

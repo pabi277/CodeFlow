@@ -268,8 +268,10 @@ export function Settings() {
             <p className="mt-1.5 text-[11px] text-ink-muted">
               Open <b className="text-ink">this Vercel site on the same Android phone</b> that
               runs Termux. A PC browser cannot reach Termux. Copy the <b className="text-ink">latest</b>
-              bridge script (it allows Chrome to talk to localhost from HTTPS), restart
-              <span className="font-mono"> node termux-bridge.js</span>, then tap Refresh and
+              bridge script (v2.2 — it lets Chrome talk to localhost from HTTPS and adds live
+              stdin), then in Termux run <span className="font-mono">pkill -f termux-bridge</span> to
+              stop any old copy, paste the new script, and run
+              <span className="font-mono"> node termux-bridge.js</span>. Then tap Refresh and
               <b className="text-ink"> Allow</b> if Chrome asks for local network access.
             </p>
             <div className="mt-2 flex gap-2">
@@ -290,7 +292,7 @@ export function Settings() {
               placeholder="Paste your Judge0 RapidAPI key…"
               className="w-full rounded-lg border border-ink/15 bg-input px-3 py-2.5 text-[14px] text-ink outline-none focus:border-accent"
             />
-            <p className="mt-1 text-[11px] text-ink-muted">Without a key, JavaScript runs locally; other languages show sample output.</p>
+            <p className="mt-1 text-[11px] text-ink-muted">Without a key or Termux, JavaScript still runs in a sandbox; other languages report that they could not run.</p>
           </div>
           <div className="py-2.5">
             <label className="mb-1 block text-[12px] text-ink-muted">Termux bridge URL</label>

@@ -108,6 +108,12 @@ export async function cloneRepository(
     // Brand-new repository with no commits — clone it as an empty project.
     onProgress?.({ label: 'Repository is empty — creating empty project…', done: 0, total: 0 })
   }
+  // GitHub truncates a recursive tree at 100k entries (truncated: true). Cloning
+  // from that partial listing would silently produce an incomplete project, so
+  // abort instead of pretending the clone succeeded.
+  if (treeRes?.truncated) {
+    throw new Error('Repo is too large to clone in the browser.')
+  }
   const blobs = (treeRes?.tree ?? []).filter((t) => t.type === 'blob')
   onProgress?.({ label: 'Creating project…', done: 0, total: blobs.length })
 
@@ -457,6 +463,10 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
     // Brand-new repository with no commits — nothing to pull yet.
     await projectsDb.updateProjectGithub(projectId, { lastSyncAt: Date.now() })
     return { updated: 0, created: 0, conflicts: [], conflictDetails: [], deletedRemote: [] }
+  }
+  // A truncated tree would make the pull silently drop remote files.
+  if (treeRes.truncated) {
+    throw new Error('Repo is too large to pull in the browser.')
   }
   const blobs = treeRes.tree.filter((t) => t.type === 'blob')
 

@@ -37,6 +37,7 @@ import { PluginHost } from './components/PluginHost'
 import { FileListSidebar } from './components/FileExplorer/FileListSidebar'
 import { initBuiltinPlugins } from './plugins/builtin'
 import { usePWA } from './hooks/usePWA'
+import { useHardwareBack } from './hooks/useHardwareBack'
 import { AiOutlineDownload } from 'react-icons/ai'
 import { VscCircleSlash, VscClose } from 'react-icons/vsc'
 
@@ -74,6 +75,7 @@ function InstallBanner() {
 
 export default function App() {
   useIDEShortcuts()
+  useHardwareBack()
   const booted = useStore((s) => s.booted)
   const bootstrap = useStore((s) => s.bootstrap)
   const activeProjectId = useStore((s) => s.activeProjectId)

@@ -210,7 +210,6 @@ function SourceBadge({ source }: { source: string }) {
     local: { label: 'Ran locally', cls: 'bg-sky-500/15 text-sky-400' },
     termux: { label: 'Ran in Termux', cls: 'bg-emerald-500/15 text-emerald-400' },
     judge0: { label: 'Ran on Judge0', cls: 'bg-purple-500/15 text-purple-400' },
-    mock: { label: 'Mock output', cls: 'bg-white/10 text-ink-muted' },
   }
   const s = map[source] || { label: source, cls: 'bg-white/10 text-ink-muted' }
   return (

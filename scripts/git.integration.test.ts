@@ -40,6 +40,7 @@ class FakeGitHub {
   branchShas: Record<string, string> = {}
   meta: Record<string, { private: boolean; description: string | null }> = {}
   emptyRepos = new Set<string>()
+  truncatedRepos = new Set<string>()
   lastTreeBase: string | null | undefined
   lastCommitParents: string[] | undefined
   createRefCalls = 0
@@ -77,7 +78,7 @@ class FakeGitHub {
       this.blobs[s] = content
       tree.push({ path, type: 'blob', sha: s, url: `blob:${s}` })
     }
-    return { tree, sha: 'tree-sha', truncated: false }
+    return { tree, sha: 'tree-sha', truncated: this.truncatedRepos.has(`${owner}/${repo}`) }
   }
   getFileContent = async (_t: string, url: string) => {
     const s = url.split(':')[1]
@@ -505,6 +506,19 @@ async function main() {
   const newDelete = await fsDb.createNode(project.id, null, 'throwaway.txt', 'file', 'x\n')
   await fsDb.deleteNode(newDelete.id)
   ok(await fsDb.getNode(newDelete.id) === undefined, 'new file is hard-deleted immediately')
+
+  console.log('\n[27] clone of a truncated tree fails instead of looking complete')
+  fake.addRepo('octocat', 'huge', { 'a.py': 'print(1)\n' })
+  fake.truncatedRepos.add('octocat/huge')
+  let truncatedError = ''
+  try {
+    await gitService.cloneRepository({ full_name: 'octocat/huge', name: 'huge', default_branch: 'main' } as any, 'huge')
+  } catch (err) {
+    truncatedError = (err as Error).message
+  }
+  ok(truncatedError.includes('too large'), `truncated clone fails with a clear error (got "${truncatedError}")`)
+  const hugeProjects = (await projectsDb.listProjects()).filter((p) => p.name === 'huge')
+  ok(hugeProjects.length === 0, 'no project is created (or marked connected) for a truncated clone')
 
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)

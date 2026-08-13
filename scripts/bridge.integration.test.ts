@@ -5,6 +5,7 @@
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
+import { readFileSync } from 'fs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -27,6 +28,24 @@ async function post(language: string, code: string, stdin = '', extra: Record<st
 }
 
 async function main() {
+  // The Settings "Copy Bridge Script" button serves /termux-bridge.js. The .cjs
+  // twin exists only so the repo's `"type": "module"` doesn't matter when the
+  // test spawns `node` on it. They must be the same program.
+  console.log('\n[bridge files in sync]')
+  const jsPath = path.resolve(__dirname, '../public/termux-bridge.js')
+  const cjsPath = path.resolve(__dirname, '../public/termux-bridge.cjs')
+  const jsSrc = readFileSync(jsPath, 'utf8')
+  const cjsSrc = readFileSync(cjsPath, 'utf8')
+  ok(jsSrc === cjsSrc, 'termux-bridge.js and termux-bridge.cjs are identical')
+  ok(jsSrc.includes('appendStream'), 'copied script defines appendStream')
+  ok(jsSrc.includes("'/poll'"), 'copied script serves GET /poll')
+  ok(jsSrc.includes("'/stdin'"), 'copied script serves POST /stdin')
+  ok(jsSrc.includes("'/kill'"), 'copied script serves POST /kill')
+  ok(jsSrc.includes('Access-Control-Allow-Private-Network'), 'copied script sends Private-Network header')
+  ok(jsSrc.includes('Access-Control-Allow-Local-Network'), 'copied script sends Local-Network header')
+  ok(jsSrc.includes('interactive'), 'copied script executes with interactive')
+  ok(jsSrc.includes("VERSION = '2.2'"), 'bridge VERSION bumped to 2.2')
+
   const bridgePath = path.resolve(__dirname, '../public/termux-bridge.cjs')
   // The bridge binds a fixed port (8080); test against 8080 to keep it simple.
   const child = spawn('node', [bridgePath], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -48,6 +67,13 @@ async function main() {
   const health = await (await fetch('http://127.0.0.1:8080/health')).json()
   ok(health.status === 'ok' && health.version, 'health returns { status:"ok", version }')
   ok(health.preview === true, 'v2 bridge advertises preview:true')
+  ok(health.interactive === true, 'v2.2 bridge advertises interactive:true')
+
+  console.log('\n[cors / private-network headers]')
+  const corsRes = await fetch('http://127.0.0.1:8080/health')
+  ok(!!corsRes.headers.get('access-control-allow-origin'), 'CORS allow-origin present')
+  ok(corsRes.headers.get('access-control-allow-private-network') === 'true', 'Access-Control-Allow-Private-Network: true')
+  ok(corsRes.headers.get('access-control-allow-local-network') === 'true', 'Access-Control-Allow-Local-Network: true')
 
   console.log('\n[real execution — python]')
   const py = await post('python', 'print("Hello from Termux!")\nx = 5 + 3\nprint(f"5 + 3 = {x}")')
@@ -91,6 +117,35 @@ async function main() {
   ok(css.includes('color:red'), 'GET /preview/css/app.css serves stylesheet')
   const escape = await fetch('http://127.0.0.1:8080/preview/../../etc/passwd')
   ok(escape.status === 403 || escape.status === 404, `path traversal blocked (got ${escape.status})`)
+
+  console.log('\n[interactive session — /poll /stdin /kill]')
+  const inter = await post('python', 'import sys\nprint("go", flush=True)\nline = sys.stdin.readline()\nprint("echo:" + line.strip())', '', { interactive: true })
+  ok(!!inter.sessionId && inter.interactive === true, `interactive execute returns a sessionId (got ${JSON.stringify(inter)})`)
+  const sessId = inter.sessionId
+  let polled: any = null
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 150))
+    polled = await (await fetch(`http://127.0.0.1:8080/poll?session=${sessId}`)).json()
+    if (String(polled.stdout || '').includes('go')) break
+  }
+  ok(!!polled && String(polled.stdout).includes('go'), 'interactive session stdout polled')
+  const stdinRes = await fetch('http://127.0.0.1:8080/stdin', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: sessId, text: 'hello' }),
+  })
+  ok(stdinRes.ok, 'POST /stdin accepted')
+  let echoed: any = null
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 150))
+    echoed = await (await fetch(`http://127.0.0.1:8080/poll?session=${sessId}`)).json()
+    if (String(echoed.stdout || '').includes('echo:hello')) break
+  }
+  ok(!!echoed && String(echoed.stdout).includes('echo:hello'), 'stdin line echoed back via poll')
+  const killed = await (await fetch('http://127.0.0.1:8080/kill', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: sessId }),
+  })).json()
+  ok(killed.done === true, 'POST /kill stops the session')
 
   child.kill('SIGKILL')
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
