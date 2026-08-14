@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -26,61 +25,50 @@ function prettierRoot(): string | null {
   }
 }
 
-/** Minimal shape of the /api/exchange handler's response object. */
-interface OAuthRes {
-  statusCode: number
-  setHeader(key: string, value: string): void
-  end(body?: string): void
-  status(code: number): OAuthRes
-  json(body: unknown): void
-}
-
-/** Dev-only middleware: serves the real api/exchange.js serverless function on
- *  the Vite dev server so the full GitHub OAuth flow works in `npm run dev`.
- *  Reads GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET from .env.local (server-side
- *  only — never exposed to the client bundle). */
-function oauthExchangeProxy(): Plugin {
-  const exchangePath = path.join(process.cwd(), 'api', 'exchange.js')
-  return {
-    name: 'oauth-exchange-proxy',
-    apply: 'serve',
-    configureServer(server) {
-      const env = loadEnv(server.config.mode, process.cwd(), '')
-      for (const key of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) {
-        if (env[key]) process.env[key] = env[key]
+/** Local `/api/exchange` so GitHub OAuth works in `vite` / `vite preview`. */
+function oauthExchange(): Plugin {
+  const handle = async (req: { method?: string; on: (ev: string, cb: (c: Buffer) => void) => void }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b?: string) => void }) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    if (req.method === 'OPTIONS') { res.statusCode = 200; res.end('ok'); return }
+    if (req.method !== 'POST') { res.statusCode = 405; res.end(JSON.stringify({ error: 'Method not allowed' })); return }
+    const chunks: Buffer[] = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', async () => {
+      let body: { code?: string; redirect_uri?: string } = {}
+      try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { body = {} }
+      const clientId = process.env.GITHUB_CLIENT_ID || process.env.VITE_GITHUB_CLIENT_ID
+      const clientSecret = process.env.GITHUB_CLIENT_SECRET
+      if (!body.code) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing code' })); return }
+      if (!clientId || !clientSecret) {
+        res.statusCode = 500
+        res.end(JSON.stringify({ error: 'OAuth proxy not configured (missing credentials). Paste a personal access token instead.' }))
+        return
       }
-      server.middlewares.use('/api/exchange', (req, res) => {
-        let body = ''
-        req.on('data', (chunk: Buffer) => { body += chunk })
-        req.on('end', async () => {
-          let parsed: Record<string, unknown> = {}
-          try { parsed = body ? JSON.parse(body) : {} } catch { parsed = {} }
-          try {
-            // api/package.json marks the serverless handler as CommonJS even
-            // though the root package is ESM. Native dynamic import exposes
-            // module.exports as `default`; cache-bust it so edits are picked up.
-            const mod = await import(/* @vite-ignore */ `${pathToFileURL(exchangePath).href}?t=${Date.now()}`)
-            const handler = (mod as { default?: (req: unknown, res: OAuthRes) => void }).default
-            if (!handler) throw new Error('OAuth exchange handler was not found')
-            // Node's http.ServerResponse lacks res.status()/res.json().
-            const resAdapter = new Proxy(res, {
-              get(target, prop) {
-                if (prop === 'status') return (code: number) => { target.statusCode = code; return resAdapter }
-                if (prop === 'json') return (obj: unknown) => {
-                  target.setHeader('Content-Type', 'application/json')
-                  target.end(JSON.stringify(obj))
-                }
-                return Reflect.get(target, prop, target)
-              },
-            }) as unknown as OAuthRes
-            handler({ method: req.method, body: parsed }, resAdapter)
-          } catch (err) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ error: (err as Error).message || 'Token exchange failed' }))
-          }
+      try {
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code: body.code, redirect_uri: body.redirect_uri || undefined }),
         })
-      })
+        const data = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string }
+        if (data.access_token) { res.statusCode = 200; res.end(JSON.stringify({ access_token: data.access_token })); return }
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: data.error_description || data.error || 'Token exchange failed' }))
+      } catch {
+        res.statusCode = 502
+        res.end(JSON.stringify({ error: 'GitHub token exchange failed.' }))
+      }
+    })
+  }
+  return {
+    name: 'oauth-exchange',
+    configureServer(server) {
+      server.middlewares.use('/api/exchange', handle)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use('/api/exchange', handle)
     },
   }
 }
@@ -108,10 +96,10 @@ function optionalPrettier(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    oauthExchange(),
     optionalPrettier(),
     react(),
     tailwindcss(),
-    oauthExchangeProxy(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'og.png', 'robots.txt', 'icons/apple-touch-icon.png'],

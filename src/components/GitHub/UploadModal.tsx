@@ -6,9 +6,8 @@ import { AiOutlineCloudUpload, AiOutlineSearch, AiFillGithub, AiOutlineCheck } f
 const REPO_NAME_RE = /^[a-zA-Z0-9._-]+$/
 
 /**
- * "Shameless upload" — push ALL files of the current local project to GitHub
- * in one tap. Either creates a brand-new repo or fills an existing empty one,
- * then makes the initial commit and connects the project.
+ * Push ALL files of the current local project to GitHub in one tap.
+ * Either creates a brand-new repo or fills an existing empty one.
  */
 export function UploadModal() {
   const open = useStore((s) => s.uploadOpen)
@@ -28,7 +27,6 @@ export function UploadModal() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
-  // reset state each time the sheet opens
   useEffect(() => {
     if (open) {
       setName(project?.name || '')
@@ -45,7 +43,7 @@ export function UploadModal() {
   const emptyRepos = useMemo(() => {
     const q = query.trim().toLowerCase()
     return repos
-      .filter((r) => (r.size ?? 1) === 0) // size 0 ⇒ no commits yet
+      .filter((r) => (r.size ?? 1) === 0)
       .filter((r) => !q || r.full_name.toLowerCase().includes(q))
   }, [repos, query])
 
@@ -94,7 +92,6 @@ export function UploadModal() {
             Push every file in this project to GitHub in one go — no staging, no fuss.
           </p>
 
-          {/* mode toggle */}
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-white/5 p-1">
             <button
               onClick={() => setMode('new')}

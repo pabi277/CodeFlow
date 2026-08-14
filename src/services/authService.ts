@@ -1,8 +1,11 @@
-// GitHub OAuth token management.
+// GitHub OAuth + personal-access-token management.
 //
 // The OAuth client secret never ships to the browser. The short-lived code is
 // exchanged by the serverless function at /api/exchange, while the resulting
 // access token is kept in IndexedDB by the auth database helpers.
+//
+// Users can also paste a classic / fine-grained personal access token. That
+// path needs no OAuth App and works in any environment (including local preview).
 
 import axios, { type AxiosResponse } from 'axios'
 import { getAuth, setAuth, clearAuth } from '../db/gitHub'
@@ -56,10 +59,14 @@ function clearOAuthState(): void {
 
 // OAuth App config (frontend-safe values only — never the client secret).
 export const GITHUB_OAUTH = {
-  clientId: import.meta.env?.VITE_GITHUB_CLIENT_ID || '',
+  clientId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GITHUB_CLIENT_ID) || '',
   redirectUri: `${origin}/auth/callback`,
   scopes: ['repo', 'user'],
   tokenProxyUrl: `${origin}/api/exchange`,
+}
+
+export function isOAuthConfigured(): boolean {
+  return Boolean(GITHUB_OAUTH.clientId)
 }
 
 /** Pull a useful message out of Error, Axios, or server JSON payloads. */
@@ -107,7 +114,7 @@ export async function signOut(): Promise<void> {
 /** Start OAuth by redirecting to GitHub's authorization screen. */
 export function beginOAuth(): void {
   if (!GITHUB_OAUTH.clientId) {
-    throw new Error('GitHub OAuth is not configured — VITE_GITHUB_CLIENT_ID is missing.')
+    throw new Error('GitHub OAuth is not configured. Paste a personal access token instead.')
   }
   const state = Math.random().toString(36).slice(2)
   storeOAuthState(state)
@@ -118,6 +125,31 @@ export function beginOAuth(): void {
     state,
   })
   window.location.href = `https://github.com/login/oauth/authorize?${params.toString()}`
+}
+
+/**
+ * Validate a personal access token against the GitHub API and store it.
+ * Accepts classic (`ghp_…`) and fine-grained (`github_pat_…`) tokens.
+ */
+export async function connectWithToken(rawToken: string): Promise<GitHubAuth> {
+  const token = rawToken.trim()
+  if (!token) throw new Error('Paste a GitHub personal access token.')
+  if (/\s/.test(token)) throw new Error('That does not look like a token — it contains spaces.')
+  try {
+    const user = await gh.getCurrentUser(token)
+    const auth: GitHubAuth = {
+      token,
+      username: user.login,
+      displayName: user.name || user.login,
+      avatarUrl: user.avatar_url,
+      tokenExpiry: null,
+      scopes: GITHUB_OAUTH.scopes,
+    }
+    await setAuth(auth)
+    return auth
+  } catch (error) {
+    throw new Error(oauthErrorMessage(error) || 'That token was rejected by GitHub. Check the token and try again.')
+  }
 }
 
 /**

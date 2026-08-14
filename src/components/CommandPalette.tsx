@@ -44,6 +44,7 @@ export function CommandPalette() {
   const doPull = useStore((s) => s.doPull)
   const openBranchPicker = useStore((s) => s.openBranchPicker)
   const connectGitHub = useStore((s) => s.connectGitHub)
+  const openUpload = useStore((s) => s.openUpload)
   const auth = useStore((s) => s.auth)
   const setFindInProject = useStore((s) => s.setFindInProject)
   const setHistoryBrowser = useStore((s) => s.setHistoryBrowser)
@@ -136,7 +137,7 @@ export function CommandPalette() {
       : [
           { label: 'Git: Connect GitHub', run: () => { connectGitHub(); setOpen(false) } },
         ]),
-  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen, cyclePreviewMode, setPreviewMode, formatActiveDocument, setGoToLineOpen, openBottomPanel])
+  ], [settings, updateSettings, setNewItemModal, setOpen, runCurrentFile, setSettingsOpen, clearTerminal, setTerminalOpen, closeTab, showToast, auth, openRepoBrowser, openUpload, openCommit, doPull, openBranchPicker, connectGitHub, setFindInProject, setHistoryBrowser, setSnippetsOpen, openGitLog, openPrs, openHome, exportProjectZip, setImportProjectOpen, cyclePreviewMode, setPreviewMode, formatActiveDocument, setGoToLineOpen, openBottomPanel])
 
   const files: FileNode[] = useMemo(() => Object.values(nodeMap).filter((n) => n.type === 'file'), [nodeMap])
 

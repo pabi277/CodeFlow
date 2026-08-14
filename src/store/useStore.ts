@@ -176,6 +176,7 @@ interface StoreState {
   // actions
   bootstrap: () => Promise<void>
   connectGitHub: () => void
+  connectWithToken: (token: string) => Promise<void>
   handleCallback: () => Promise<void>
   disconnectGitHub: () => Promise<void>
   openRepoBrowser: () => void
@@ -614,29 +615,9 @@ export const useStore = create<StoreState>((set, get) => ({
   renameNode: async (id, newName) => {
     try {
       // Flush unsaved edits first — rename refreshes the tree from IndexedDB.
+      // files.ts records git deletes+adds for tracked files AND folders.
       await get().flushDirtyTabs()
-      const node = get().nodeMap[id]
-      if (!node) return
-      if (node.type === 'file' && !node.isNew && !node.isDeleted) {
-        // Renaming a tracked file = delete the old path + add the new path,
-        // which the commit flow already supports (sha:null deletion + new blob).
-        const projectId = node.projectId
-        const parentId = node.parentId
-        const oldName = node.name
-        const content = node.content
-        await fsDb.renameNode(id, newName)
-        // Tombstone the old path so the commit deletes it on GitHub.
-        const tombstone = await fsDb.createNode(projectId, parentId, oldName, 'file', content, {
-          isNew: false,
-          gitSha: node.gitSha,
-          originalContent: node.originalContent,
-        })
-        await fsDb.markTrackedDeleted(tombstone.id)
-        // The renamed file is now "new" so the commit adds it under its new path.
-        await db.files.update(id, { isNew: true, gitSha: null, originalContent: content, isGitModified: false })
-      } else {
-        await fsDb.renameNode(id, newName)
-      }
+      await fsDb.renameNode(id, newName)
       await get().refreshProject()
       await get().refreshGitStatus()
     } catch (err) {
@@ -754,8 +735,10 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   moveNode: async (id, newParentId) => {
     try {
+      await get().flushDirtyTabs()
       await fsDb.moveNode(id, newParentId)
       await get().refreshProject()
+      await get().refreshGitStatus()
       get().showToast('Moved', 'success')
     } catch (err) {
       get().showToast((err as Error).message, 'error')
@@ -963,6 +946,16 @@ export const useStore = create<StoreState>((set, get) => ({
       authService.beginOAuth()
     } catch (err) {
       get().showToast(authService.oauthErrorMessage(err), 'error')
+    }
+  },
+  connectWithToken: async (token) => {
+    try {
+      const auth = await authService.connectWithToken(token)
+      set({ auth })
+      get().showToast(`Connected as @${auth.username}`, 'success')
+    } catch (err) {
+      get().showToast(authService.oauthErrorMessage(err), 'error')
+      throw err
     }
   },
   handleCallback: async () => {

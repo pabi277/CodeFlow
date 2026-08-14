@@ -344,7 +344,7 @@ export function Settings() {
               </button>
             </>
           ) : (
-            <p className="py-3 text-[14px] text-ink-muted">Not connected. Use the Git tab in the drawer to connect.</p>
+            <p className="py-3 text-[14px] text-ink-muted">Not connected. Open the Git tab to sign in with GitHub or paste a personal access token.</p>
           )}
         </Section>
 

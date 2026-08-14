@@ -111,6 +111,21 @@ export default function App() {
     bootstrap()
   }, [bootstrap])
 
+  // Flush unsaved edits when the tab is backgrounded or killed so GitHub
+  // commits (and phone OS process death) never push stale IndexedDB content.
+  useEffect(() => {
+    const flush = () => { void useStore.getState().flushDirtyTabs() }
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [])
+
   useEffect(() => {
     if (booted && shouldShowWelcome()) useStore.getState().setWelcomeOpen(true)
   }, [booted])

@@ -62,9 +62,11 @@
 
 ### 🔀 GitHub
 
-- OAuth connect, clone, commit, push, and pull
+- Sign in with OAuth or a personal access token
+- Clone, commit, push, and pull
+- Folder and file renames, moves, and deletes land on GitHub
 - Branch switching, diff viewer, and conflict resolver
-- Upload local projects to GitHub
+- Upload local projects to a new or empty repo
 - Git history and pull request viewer
 
 ### 📱 Mobile First

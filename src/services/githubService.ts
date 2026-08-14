@@ -1,6 +1,4 @@
 // GitHub REST API v3 — all operations grouped by resource.
-// PHASE 2: This module is fully implemented in the GitHub integration phase.
-// The structure is defined here so the store and UI can reference it.
 
 import axios from 'axios'
 import { API } from '../config/api'
@@ -19,6 +17,7 @@ const client = axios.create({ baseURL: API.githubApiBase, timeout: 30000 })
 
 function setToken(token: string) {
   client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+  client.defaults.headers.common['Accept'] = 'application/vnd.github+json'
 }
 
 export async function getCurrentUser(token: string): Promise<GitHubUser> {
@@ -29,11 +28,16 @@ export async function getCurrentUser(token: string): Promise<GitHubUser> {
 
 export async function listRepos(token: string, query = ''): Promise<GitHubRepo[]> {
   setToken(token)
-  const { data } = await client.get<GitHubRepo[]>('/user/repos', {
-    params: { per_page: 100, sort: 'updated', visibility: 'all' },
-  })
+  const all: GitHubRepo[] = []
+  for (let page = 1; page <= 5; page++) {
+    const { data } = await client.get<GitHubRepo[]>('/user/repos', {
+      params: { per_page: 100, page, sort: 'updated', visibility: 'all' },
+    })
+    all.push(...data)
+    if (data.length < 100) break
+  }
   const q = query.trim().toLowerCase()
-  return q ? data.filter((r) => r.full_name.toLowerCase().includes(q)) : data
+  return q ? all.filter((r) => r.full_name.toLowerCase().includes(q)) : all
 }
 
 export async function getTree(token: string, owner: string, repo: string, branch: string): Promise<GitHubTreeResponse> {
@@ -112,9 +116,7 @@ function encodeContentsPath(path: string): string {
 /**
  * Encode file content as base64 exactly the way GitHub expects it back:
  * text files as UTF-8 (emoji and other non-ASCII survive), binary files and
- * stored data URLs byte-for-byte. Binary content is stored locally either as
- * a data URL (imported via ZIP / file picker) or as raw latin1 bytes (cloned
- * from GitHub), so it must not be round-tripped through UTF-8.
+ * stored data URLs byte-for-byte.
  */
 function encodeContent(content: string, path = ''): string {
   const binaryPath = isBinaryPath(path) || isImagePath(path)

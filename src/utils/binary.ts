@@ -60,9 +60,6 @@ export function textToBase64(text: string): string {
 
 /** If `content` is a stored `data:<mime>;base64,<payload>` URL, return its mime and payload. */
 export function dataUrlBase64(content: string): { mime: string; data: string } | null {
-  // Only the short header matters; a real data-URL header is well under this.
-  // The first `,` ends the header, so `;base64` must appear before it; `;`
-  // (parameter separator) stays allowed inside the mime capture.
   const head = content.slice(0, 256)
   const m = /^data:([^,]*);base64,/i.exec(head)
   if (!m) return null

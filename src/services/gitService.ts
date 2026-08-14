@@ -23,12 +23,11 @@ import type {
 /** True when the GitHub API says the repository has no commits yet (a brand-new repo). */
 function isEmptyRepoError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false
-  const e = err as { response?: { status?: number; data?: { message?: string } } }
-  return (
-    e.response?.status === 409 &&
-    typeof e.response?.data?.message === 'string' &&
-    e.response.data.message.toLowerCase().includes('git repository is empty')
-  )
+  const e = err as { response?: { status?: number; data?: { message?: string } }; message?: string }
+  if (e.response?.status === 409 && typeof e.response?.data?.message === 'string') {
+    return e.response.data.message.toLowerCase().includes('git repository is empty')
+  }
+  return typeof e.message === 'string' && e.message.toLowerCase().includes('git repository is empty')
 }
 
 async function requireToken(): Promise<string> {
@@ -78,7 +77,7 @@ export async function computeGitStatus(projectId: string, nodeMap: Record<string
     }
   }
   // Also surface tombstones that are in the DB but missing from the in-memory
-  // map (e.g. right after a reload).
+  // map (e.g. right after a reload, or detached rename tombstones).
   const deleted = await fsDb.listDeletedInProject(projectId)
   for (const n of deleted) {
     if (n.type !== 'file' || seen.has(n.id)) continue
@@ -105,19 +104,14 @@ export async function cloneRepository(
     treeRes = await gh.getTree(token, owner, repo.name, branch)
   } catch (err) {
     if (!isEmptyRepoError(err)) throw err
-    // Brand-new repository with no commits — clone it as an empty project.
     onProgress?.({ label: 'Repository is empty — creating empty project…', done: 0, total: 0 })
   }
-  // GitHub truncates a recursive tree at 100k entries (truncated: true). Cloning
-  // from that partial listing would silently produce an incomplete project, so
-  // abort instead of pretending the clone succeeded.
   if (treeRes?.truncated) {
     throw new Error('Repo is too large to clone in the browser.')
   }
   const blobs = (treeRes?.tree ?? []).filter((t) => t.type === 'blob')
   onProgress?.({ label: 'Creating project…', done: 0, total: blobs.length })
 
-  // create project + root folder
   const project = await projectsDb.createProject(projectName, '')
   const root = await fsDb.createNode(project.id, null, projectName, 'folder', '', { isNew: false })
   await db.projects.update(project.id, { rootFolderId: root.id })
@@ -125,7 +119,6 @@ export async function cloneRepository(
 
   const pathToId: Record<string, string> = { '/': root.id }
 
-  // folders first, shallowest first
   const trees = (treeRes?.tree ?? [])
     .filter((t) => t.type === 'tree' && t.path)
     .sort((x, y) => x.path.split('/').length - y.path.split('/').length)
@@ -135,7 +128,6 @@ export async function cloneRepository(
     pathToId['/' + t.path] = folder.id
   }
 
-  // blobs in batches of 10
   let done = 0
   for (let i = 0; i < blobs.length; i += 10) {
     const batch = blobs.slice(i, i + 10)
@@ -175,11 +167,9 @@ interface InitialFile {
 /**
  * Push the very first commit into an EMPTY repository (one with no commits yet).
  *
- * GitHub's git database API (blobs / trees / commits / refs) answers every call
- * with 409 "Git Repository is empty" until the repository has its first commit,
- * so the repository is initialized by creating the first file through the
- * contents API; any remaining files are then committed on top with the normal
- * git database flow. Returns the final commit SHA and every file's blob SHA.
+ * GitHub's git database API answers every call with 409 until the repository
+ * has its first commit, so the repository is initialized by creating the first
+ * file through the contents API; remaining files are then committed on top.
  */
 async function pushInitialCommitToEmptyRepo(
   token: string,
@@ -196,13 +186,10 @@ async function pushInitialCommitToEmptyRepo(
   const blobShas: Record<string, string> = {}
   const [first, ...rest] = files
 
-  // 1. initialize the repository and create the first file (this makes the
-  //    default branch exist, so the git database API works afterwards).
   const init = await gh.createOrUpdateFile(token, owner, repo, toRepoPath(first.path), first.content, message, branch)
   blobShas[first.id] = init.blobSha
   let sha = init.commitSha
 
-  // 2. commit the remaining files on top of the brand-new branch.
   if (rest.length) {
     const ref = await gh.getRef(token, owner, repo, branch)
     const baseCommit = await gh.getCommit(token, owner, repo, ref.object.sha)
@@ -221,13 +208,11 @@ async function pushInitialCommitToEmptyRepo(
   return { sha, blobShas }
 }
 
-/** Commit staged files and push them to the connected GitHub branch. Returns the new commit SHA.
- *  Works on both existing branches and freshly-cloned EMPTY repositories — in the empty case
- *  the repository is initialized through the contents API and the files are committed on top. */
+/** Commit staged files and push them to the connected GitHub branch. */
 export async function commitChanges(projectId: string, opts: CommitOptions): Promise<string> {
-  // CodeFlow has no local Git object database or pending-commit queue. Creating a
-  // commit without moving the remote ref would leave it unreachable and then
-  // incorrectly mark the local files clean, so fail before performing any work.
+  // CodeFlow has no local Git object database. Creating a commit without
+  // moving the remote ref would leave it unreachable and then incorrectly
+  // mark the local files clean.
   if (!opts.push) {
     throw new Error('Commit Only is not supported yet. Use Commit & Push to keep your changes safe.')
   }
@@ -239,7 +224,6 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
   }
   const { owner, repo, branch } = project.github
 
-  // 0. split the staged files into additions and deletions
   const additions: InitialFile[] = []
   const deletions: { id: string; path: string }[] = []
   for (const id of opts.includeIds) {
@@ -249,25 +233,22 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
     else additions.push({ id: node.id, path: node.path, content: node.content })
   }
 
-  // 1. detect whether the remote branch exists yet (empty repo → initial commit)
   let baseSha: string | null = null
   try {
     baseSha = (await gh.getRef(token, owner, repo, branch)).object.sha
   } catch (err) {
     if (!isEmptyRepoError(err)) throw err
-    baseSha = null // brand-new repository with no commits yet
+    baseSha = null
   }
 
   let newSha: string
   const blobShas: Record<string, string> = {}
 
   if (baseSha === null) {
-    // Empty repository — the git database API would 409, so initialize it first.
     const result = await pushInitialCommitToEmptyRepo(token, owner, repo, branch, opts.message, additions)
     newSha = result.sha
     Object.assign(blobShas, result.blobShas)
   } else {
-    // Existing branch — standard blob → tree → commit → update ref flow.
     const baseCommit = await gh.getCommit(token, owner, repo, baseSha)
     const entries: { path: string; mode: string; type: string; sha: string | null }[] = []
     for (const d of deletions) {
@@ -284,7 +265,6 @@ export async function commitChanges(projectId: string, opts: CommitOptions): Pro
     newSha = commit.sha
   }
 
-  // update local bookkeeping
   for (const a of additions) {
     await fsDb.syncGitFile(a.id, a.content, blobShas[a.id] || '')
   }
@@ -302,9 +282,8 @@ export interface UploadResult {
 }
 
 /**
- * "Shameless upload": push ALL files of a local (not-yet-connected) project to
- * GitHub in one go. Either creates a brand-new repository or pushes into an
- * existing EMPTY one, then makes the initial commit and connects the project.
+ * Push ALL files of a local (not-yet-connected) project to GitHub in one go.
+ * Either creates a brand-new repository or pushes into an existing EMPTY one.
  */
 export async function uploadProjectToGitHub(
   projectId: string,
@@ -318,11 +297,9 @@ export async function uploadProjectToGitHub(
     throw new Error('This project is already connected to GitHub — use Commit & Push instead.')
   }
 
-  // 1. collect local files (before touching the remote)
   const files = (await fsDb.listAllInProject(projectId)).filter((n) => n.type === 'file' && !n.isDeleted)
   onProgress?.({ label: `Uploading ${files.length} file(s)…`, done: 0, total: Math.max(files.length, 1) })
 
-  // 2. decide the target repo
   let owner: string
   let repo: string
   let branch: string
@@ -348,9 +325,6 @@ export async function uploadProjectToGitHub(
     branch = created.default_branch || 'main'
   }
 
-  // 3. create the initial commit. An empty repo can't be written with the git
-  //    database API (409 "Git Repository is empty"), so the repository is
-  //    initialized via the contents API and the files are committed on top.
   const message = (opts.message || 'Initial commit').trim() || 'Initial commit'
   const blobShas: Record<string, string> = {}
   if (files.length) {
@@ -366,7 +340,6 @@ export async function uploadProjectToGitHub(
     Object.assign(blobShas, result.blobShas)
   }
 
-  // 4. local bookkeeping — every uploaded file is now tracked
   for (const n of files) {
     await fsDb.syncGitFile(n.id, n.content, blobShas[n.id] || '')
   }
@@ -376,8 +349,7 @@ export async function uploadProjectToGitHub(
 
 /**
  * Merge flat {path, content} entries (e.g. from a parsed ZIP) into an existing
- * project's file tree — creating folders/files as needed and overwriting files
- * that already exist. Returns how many files were created/updated.
+ * project's file tree.
  */
 export async function mergeEntriesIntoProject(
   projectId: string,
@@ -387,7 +359,6 @@ export async function mergeEntriesIntoProject(
   if (!project) throw new Error('Project not found.')
   const rootId = project.rootFolderId
 
-  // strip a common top-level folder (most zips wrap the project) + junk entries
   const seed = entriesToSeed(entries.filter((e) => !/^__MACOSX\//.test(e.path) && !/\.DS_Store$/.test(e.path)))
 
   let created = 0
@@ -400,8 +371,6 @@ export async function mergeEntriesIntoProject(
     let skip = false
     for (const d of parts) {
       const children = await fsDb.getChildren(parentId, projectId)
-      // a file with this segment's name blocks creating a folder here (git
-      // trees cannot have the same path as both file and folder)
       if (children.some((c) => c.type === 'file' && c.name.toLowerCase() === d.toLowerCase())) { skip = true; break }
       const existing = children.find((c) => c.type === 'folder' && c.name.toLowerCase() === d.toLowerCase())
       if (existing) { parentId = existing.id; continue }
@@ -418,13 +387,11 @@ export async function mergeEntriesIntoProject(
         await db.files.update(existing.id, {
           content: e.content,
           modifiedAt: Date.now(),
-          // tracked files become "modified"; untracked files stay new
           isGitModified: tracked ? true : existing.isGitModified,
         })
         updated++
       }
     } else {
-      // a folder with the file's name blocks creating the file
       if (children.some((c) => c.type === 'folder' && c.name.toLowerCase() === name.toLowerCase())) continue
       try {
         await fsDb.createNode(projectId, parentId, name, 'file', e.content)
@@ -460,11 +427,9 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
     treeRes = await gh.getTree(token, owner, repo, branch)
   } catch (err) {
     if (!isEmptyRepoError(err)) throw err
-    // Brand-new repository with no commits — nothing to pull yet.
     await projectsDb.updateProjectGithub(projectId, { lastSyncAt: Date.now() })
     return { updated: 0, created: 0, conflicts: [], conflictDetails: [], deletedRemote: [] }
   }
-  // A truncated tree would make the pull silently drop remote files.
   if (treeRes.truncated) {
     throw new Error('Repo is too large to pull in the browser.')
   }
@@ -477,7 +442,6 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
   const result: PullResult = { updated: 0, created: 0, conflicts: [], conflictDetails: [], deletedRemote: [] }
   const createPathToId: Record<string, string> = { '/': project.rootFolderId }
 
-  // ensure folders exist for remote blobs
   const ensureFolders = async (repoPath: string) => {
     const dirs = dirnameRepo(repoPath).split('/').filter(Boolean)
     let parentId: string = project.rootFolderId
@@ -503,7 +467,6 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
         const nodePath = '/' + blob.path
         const local = localByPath[nodePath]
         if (!local) {
-          // new remote file
           const parent = await ensureFolders(blob.path)
           const content = await gh.getFileContent(token, blob.url || '', blob.path)
           await fsDb.createNode(projectId, parent, basenameRepo(blob.path), 'file', content, {
@@ -514,8 +477,6 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
           result.created++
         } else {
           const remoteChanged = local.gitSha !== blob.sha
-          // Recompute "locally changed" from content so a stale isGitModified
-          // flag (e.g. after an app kill) can never let a pull overwrite edits.
           const locallyChanged = local.isNew || local.isGitModified || local.content !== local.originalContent
           if (remoteChanged && locallyChanged) {
             const remoteContent = await gh.getFileContent(token, blob.url || '', blob.path)
@@ -539,7 +500,6 @@ export async function pullChanges(projectId: string, onProgress?: (p: CloneProgr
     onProgress?.({ label: `Pulled ${Math.min(done, blobs.length)} of ${blobs.length}…`, done, total: blobs.length })
   }
 
-  // local files not on remote -> deleted remotely
   const remoteSet = new Set(blobs.map((b) => '/' + b.path))
   for (const n of localNodes) {
     if (!remoteSet.has(n.path)) result.deletedRemote.push(n.path)
@@ -563,6 +523,7 @@ async function findChildFolder(parentId: string, name: string): Promise<string |
 export async function discardChanges(fileId: string): Promise<void> {
   const node = await fsDb.getNode(fileId)
   if (!node || node.type !== 'file') return
+  if (node.isDeleted) return
   await fsDb.syncGitFile(fileId, node.originalContent, node.gitSha || '')
 }
 
@@ -570,14 +531,13 @@ export async function listBranches(projectId: string): Promise<GitHubBranch[]> {
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)
   if (!project?.github.connected || !project.github.owner || !project.github.repo) return []
-  return gh.listBranches(token, project.github.owner, project.github.repo)
+  return listBranchesOrEmpty(token, project.github.owner, project.github.repo)
 }
 
 export async function switchBranch(projectId: string, branch: string): Promise<void> {
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)
   if (!project?.github.connected || !project.github.owner || !project.github.repo) return
-  // Verify branch exists
   const branches = await gh.listBranches(token, project.github.owner, project.github.repo)
   if (!branches.some((b) => b.name === branch)) throw new Error(`Branch "${branch}" does not exist.`)
   await projectsDb.updateProjectGithub(projectId, { branch })
@@ -607,7 +567,6 @@ export async function deleteBranch(projectId: string, name: string): Promise<voi
   await gh.deleteRef(token, project.github.owner, project.github.repo, name)
 }
 
-/** Get the commit history (read-only) for the connected project. */
 export async function getCommitLog(projectId: string, count = 30): Promise<GitHubCommit[]> {
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)
@@ -620,7 +579,6 @@ export async function getCommitLog(projectId: string, count = 30): Promise<GitHu
   }
 }
 
-/** List open pull requests (read-only) for the connected project. */
 export async function getPullRequests(projectId: string): Promise<GitHubPullRequest[]> {
   const token = await requireToken()
   const project = await projectsDb.getProject(projectId)

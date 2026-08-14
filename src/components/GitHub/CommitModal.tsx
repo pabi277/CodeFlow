@@ -80,6 +80,7 @@ export function CommitModal() {
             <FiGitCommit /> Commit &amp; Push
           </button>
         </div>
+        <p className="mt-2 text-center text-[11px] text-ink-muted">Pushes to the connected branch so folder renames and deletes land on GitHub.</p>
       </div>
     </BottomSheet>
   )
