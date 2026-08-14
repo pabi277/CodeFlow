@@ -163,25 +163,31 @@ npm run test     # run the full test suite
 
 > 💡 Open the dev server on your Android phone (or use the live preview) and **Add to Home Screen** to install it as a PWA.
 
-## 🔐 Setting up GitHub OAuth (Phase 2)
+## 🔐 Connecting GitHub
 
-The GitHub OAuth **client secret** must never ship in frontend code, so the app
-delegates the code→token exchange to a small backend proxy. A ready-to-deploy
-**Cloudflare Worker** lives in [`/worker`](./worker).
+Two ways to sign in — both store the token in **IndexedDB** on this device only.
+
+**Personal access token (works everywhere, no deploy needed)**
+
+1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` scope.
+2. Open the **Git** tab and paste it.
+
+**OAuth (one-tap sign-in)**
+
+The client secret never ships in frontend code. The app exchanges the OAuth
+`code` via `/api/exchange` (Vercel function in [`/api`](./api), or the
+Cloudflare Worker in [`/worker`](./worker)).
 
 1. Register a GitHub **OAuth App** (Settings → Developer settings → OAuth Apps).
    Set the callback URL to `https://your-app.example.com/auth/callback`.
-2. Deploy the worker and set its secrets:
-   ```bash
-   cd worker
-   wrangler deploy
-   wrangler secret put GITHUB_CLIENT_ID
-   wrangler secret put GITHUB_CLIENT_SECRET
-   ```
-3. Configure the frontend in `src/services/authService.ts`:
-   - `clientId` → your OAuth App's Client ID
-   - `tokenProxyUrl` → your deployed worker's `/exchange` URL
-4. Rebuild. Users can now tap **Connect GitHub** in the Git tab.
+2. Set `VITE_GITHUB_CLIENT_ID` (frontend) plus `GITHUB_CLIENT_ID` and
+   `GITHUB_CLIENT_SECRET` (server).
+3. On Vercel the `/api/exchange` function is used automatically. Locally,
+   Vite serves the same route when those env vars are present.
+
+Folder and file **renames / moves / deletes** are recorded as git changes and
+land on GitHub on the next **Commit & Push**. You can also **Upload to GitHub**
+to create a new repo (or fill an empty one) from a local project.
 
 ## 🖥️ Termux Integration
 

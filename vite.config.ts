@@ -25,6 +25,54 @@ function prettierRoot(): string | null {
   }
 }
 
+/** Local `/api/exchange` so GitHub OAuth works in `vite` / `vite preview`. */
+function oauthExchange(): Plugin {
+  const handle = async (req: { method?: string; on: (ev: string, cb: (c: Buffer) => void) => void }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b?: string) => void }) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    if (req.method === 'OPTIONS') { res.statusCode = 200; res.end('ok'); return }
+    if (req.method !== 'POST') { res.statusCode = 405; res.end(JSON.stringify({ error: 'Method not allowed' })); return }
+    const chunks: Buffer[] = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', async () => {
+      let body: { code?: string; redirect_uri?: string } = {}
+      try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { body = {} }
+      const clientId = process.env.GITHUB_CLIENT_ID || process.env.VITE_GITHUB_CLIENT_ID
+      const clientSecret = process.env.GITHUB_CLIENT_SECRET
+      if (!body.code) { res.statusCode = 400; res.end(JSON.stringify({ error: 'Missing code' })); return }
+      if (!clientId || !clientSecret) {
+        res.statusCode = 500
+        res.end(JSON.stringify({ error: 'OAuth proxy not configured (missing credentials). Paste a personal access token instead.' }))
+        return
+      }
+      try {
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code: body.code, redirect_uri: body.redirect_uri || undefined }),
+        })
+        const data = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string }
+        if (data.access_token) { res.statusCode = 200; res.end(JSON.stringify({ access_token: data.access_token })); return }
+        res.statusCode = 400
+        res.end(JSON.stringify({ error: data.error_description || data.error || 'Token exchange failed' }))
+      } catch {
+        res.statusCode = 502
+        res.end(JSON.stringify({ error: 'GitHub token exchange failed.' }))
+      }
+    })
+  }
+  return {
+    name: 'oauth-exchange',
+    configureServer(server) {
+      server.middlewares.use('/api/exchange', handle)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use('/api/exchange', handle)
+    },
+  }
+}
+
 /** Resolve Prettier to real files, or a stub if `npm install` hasn't pulled it in. */
 function optionalPrettier(): Plugin {
   const root = prettierRoot()
@@ -48,6 +96,7 @@ function optionalPrettier(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    oauthExchange(),
     optionalPrettier(),
     react(),
     tailwindcss(),

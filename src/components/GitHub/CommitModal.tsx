@@ -79,14 +79,8 @@ export function CommitModal() {
           >
             <FiGitCommit /> Commit &amp; Push
           </button>
-          <button
-            onClick={() => doCommit(message, ids, false)}
-            disabled={!message.trim() || !ids.length}
-            className="flex-1 rounded-xl border border-ink/15 px-3 py-3 text-sm font-medium text-ink active:bg-white/5 disabled:opacity-40"
-          >
-            Commit Only
-          </button>
         </div>
+        <p className="mt-2 text-center text-[11px] text-ink-muted">Pushes to the connected branch so folder renames and deletes land on GitHub.</p>
       </div>
     </BottomSheet>
   )

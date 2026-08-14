@@ -117,7 +117,7 @@ export function FileExplorer() {
           </span>
           <span className={`truncate text-[13.5px] ${nameColor(node)}`}>{node.name}</span>
         </div>
-        {isFolder && isOpen && node.childIds.map((cid) => <TreeNode key={cid} nodeId={cid} depth={depth + 1} />)}
+        {isFolder && isOpen && node.childIds.filter((cid) => !nodeMap[cid]?.isDeleted).map((cid) => <TreeNode key={cid} nodeId={cid} depth={depth + 1} />)}
       </div>
     )
   }

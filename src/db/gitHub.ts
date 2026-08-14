@@ -1,16 +1,20 @@
 import { db } from './db'
 import type { GitHubAuth } from '../types'
 
-const KEY = 'auth'
-
+/**
+ * Auth is stored as a single row whose primary key is the access token.
+ * Always read/write via these helpers — never look the row up by a fixed id.
+ */
 export async function getAuth(): Promise<GitHubAuth | null> {
-  return (await db.gitHubAuth.get(KEY)) || null
+  const all = await db.gitHubAuth.toArray()
+  return all[0] || null
 }
 
 export async function setAuth(auth: GitHubAuth): Promise<void> {
-  await db.gitHubAuth.put({ ...auth, token: auth.token })
+  await db.gitHubAuth.clear()
+  await db.gitHubAuth.add(auth)
 }
 
 export async function clearAuth(): Promise<void> {
-  await db.gitHubAuth.delete(KEY)
+  await db.gitHubAuth.clear()
 }

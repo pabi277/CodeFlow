@@ -157,6 +157,21 @@ export interface GitHubRepo {
   updated_at: string
   default_branch: string
   clone_url: string
+  /** GitHub reports 0 for repositories that have no commits yet. */
+  size?: number
+}
+
+/** Options for uploading a local project to GitHub as a new or empty repo. */
+export interface UploadToGitHubOptions {
+  /** Commit message for the initial commit. */
+  message?: string
+  /** Create a new repo with this name (no owner/repo given). */
+  repoName?: string
+  description?: string
+  private?: boolean
+  /** Upload into an existing repo instead (must be empty). */
+  owner?: string
+  repo?: string
 }
 
 export interface GitHubTreeItem {

@@ -17,7 +17,7 @@ export async function createProject(name: string, rootFolderId: string): Promise
 }
 
 export async function listProjects(): Promise<Project[]> {
-  return db.projects.toArray()
+  return db.projects.orderBy('lastOpenedAt').reverse().toArray()
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
