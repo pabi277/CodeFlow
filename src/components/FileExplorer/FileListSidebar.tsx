@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useStore } from '../../store/useStore'
 import { detectLanguage } from '../../utils/language'
-import { FiFile } from 'react-icons/fi'
+import { FiFile, FiMoreVertical } from 'react-icons/fi'
 
 const LANG_COLORS: Record<string, string> = {
   python: 'text-blue-400', javascript: 'text-yellow-400', typescript: 'text-blue-300',
@@ -18,9 +18,10 @@ export function FileListSidebar() {
   const nodeMap = useStore((s) => s.nodeMap)
   const activeTabId = useStore((s) => s.activeTabId)
   const openFile = useStore((s) => s.openFile)
+  const openContextMenu = useStore((s) => s.openContextMenu)
 
   const files = useMemo(
-    () => Object.values(nodeMap).filter((n) => n.type === 'file').sort((a, b) => a.path.localeCompare(b.path)),
+    () => Object.values(nodeMap).filter((n) => n.type === 'file' && !n.isDeleted).sort((a, b) => a.path.localeCompare(b.path)),
     [nodeMap],
   )
 
@@ -32,14 +33,22 @@ export function FileListSidebar() {
           const lang = detectLanguage(f.path)
           const active = f.id === activeTabId
           return (
-            <button
+            <div
               key={f.id}
-              onClick={() => openFile(f.id)}
               className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${active ? 'bg-accent/15' : 'active:bg-white/5'}`}
             >
-              <span className={LANG_COLORS[lang] || 'text-ink-muted'}><FiFile /></span>
-              <span className={`truncate text-[12.5px] ${active ? 'text-accent' : 'text-ink'}`}>{f.path.slice(1)}</span>
-            </button>
+              <button onClick={() => openFile(f.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                <span className={LANG_COLORS[lang] || 'text-ink-muted'}><FiFile /></span>
+                <span className={`truncate text-[12.5px] ${active ? 'text-accent' : 'text-ink'}`}>{f.path.slice(1)}</span>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); try { navigator.vibrate?.(12) } catch {}; openContextMenu({ nodeId: f.id, x: e.clientX, y: e.clientY, clientX: e.clientX, clientY: e.clientY }) }}
+                aria-label={`Options for ${f.name}`}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted/70 active:bg-white/10"
+              >
+                <FiMoreVertical size={15} />
+              </button>
+            </div>
           )
         })}
         {!files.length && <p className="px-3 py-4 text-[12px] text-ink-muted">No files</p>}

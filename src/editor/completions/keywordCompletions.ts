@@ -149,7 +149,53 @@ export const JS_COMPLETIONS: Completion[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// C / C++ templates
+// C templates (ISO C — no C++ iostream / class / namespace)
+// ---------------------------------------------------------------------------
+export const C_COMPLETIONS: Completion[] = [
+  wordCompletion('int', 'keyword'), wordCompletion('float', 'keyword'), wordCompletion('double', 'keyword'),
+  wordCompletion('char', 'keyword'), wordCompletion('void', 'keyword'), wordCompletion('bool', 'keyword'),
+  wordCompletion('size_t', 'type'), wordCompletion('const', 'keyword'), wordCompletion('static', 'keyword'),
+  wordCompletion('extern', 'keyword'), wordCompletion('unsigned', 'keyword'), wordCompletion('signed', 'keyword'),
+  wordCompletion('long', 'keyword'), wordCompletion('short', 'keyword'), wordCompletion('restrict', 'keyword'),
+  wordCompletion('volatile', 'keyword'), wordCompletion('inline', 'keyword'),
+  wordCompletion('break', 'keyword'), wordCompletion('continue', 'keyword'), wordCompletion('goto', 'keyword'),
+  templateCompletion('if', 'if ($0) {\n  \n}'),
+  templateCompletion('else', 'else {\n  $0\n}'),
+  templateCompletion('else if', 'else if ($0) {\n  \n}'),
+  templateCompletion('for', 'for (int i = 0; i < $0; i++) {\n  \n}'),
+  templateCompletion('while', 'while ($0) {\n  \n}'),
+  templateCompletion('do', 'do {\n  $0\n} while (0);'),
+  templateCompletion('switch', 'switch ($0) {\n  case 0:\n    break;\n  default:\n    break;\n}'),
+  templateCompletion('case', 'case $0:\n  break;'),
+  templateCompletion('return', 'return $0;'),
+  templateCompletion('struct', 'struct $0 {\n  \n};'),
+  templateCompletion('typedef', 'typedef $0;'),
+  templateCompletion('typedef struct', 'typedef struct $0 {\n  \n} $0;'),
+  templateCompletion('enum', 'enum $0 {\n  \n};'),
+  templateCompletion('union', 'union $0 {\n  \n};'),
+  templateCompletion('printf', 'printf(\"$0\\n\");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('scanf', 'scanf(\"%d\", &$0);', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('fprintf', 'fprintf(stderr, \"$0\\n\");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('snprintf', 'snprintf($0, sizeof(), \"\");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('malloc', 'malloc(sizeof($0));', { detail: 'stdlib.h', type: 'function' }),
+  templateCompletion('calloc', 'calloc($0, sizeof());', { detail: 'stdlib.h', type: 'function' }),
+  templateCompletion('realloc', 'realloc($0, );', { detail: 'stdlib.h', type: 'function' }),
+  templateCompletion('free', 'free($0);', { detail: 'stdlib.h', type: 'function' }),
+  templateCompletion('sizeof', 'sizeof($0)', { type: 'operator' }),
+  templateCompletion('include', '#include <$0>', { type: 'preprocessor' }),
+  templateCompletion('include quote', '#include \"$0\"', { type: 'preprocessor' }),
+  templateCompletion('define', '#define $0 ', { type: 'preprocessor' }),
+  templateCompletion('ifdef', '#ifdef $0\n#endif', { type: 'preprocessor' }),
+  templateCompletion('ifndef', '#ifndef $0\n#define $0\n\n#endif', { type: 'preprocessor' }),
+  templateCompletion('main', 'int main(void) {\n  $0\n  return 0;\n}', { type: 'snippet' }),
+  templateCompletion('main args', 'int main(int argc, char *argv[]) {\n  $0\n  return 0;\n}', { type: 'snippet' }),
+  wordCompletion('NULL', 'constant'), wordCompletion('true', 'constant'), wordCompletion('false', 'constant'),
+  wordCompletion('EOF', 'constant'), wordCompletion('nullptr', 'constant'),
+  templateCompletion('fori', 'for (size_t i = 0; i < $0; i++) {\n  \n}', { detail: 'index loop', type: 'snippet' }),
+]
+
+// ---------------------------------------------------------------------------
+// C++ templates
 // ---------------------------------------------------------------------------
 export const CPP_COMPLETIONS: Completion[] = [
   wordCompletion('int', 'keyword'), wordCompletion('float', 'keyword'), wordCompletion('double', 'keyword'),
@@ -234,7 +280,7 @@ export const TEMPLATE_COMPLETIONS_BY_LANG: Record<string, Completion[]> = {
   python: PYTHON_COMPLETIONS,
   javascript: JS_COMPLETIONS,
   typescript: JS_COMPLETIONS,
-  c: CPP_COMPLETIONS,
+  c: C_COMPLETIONS,
   cpp: CPP_COMPLETIONS,
   java: JAVA_COMPLETIONS,
 }

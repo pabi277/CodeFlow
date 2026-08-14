@@ -1,4 +1,4 @@
-import { EditorSelection } from '@codemirror/state'
+import { EditorSelection, Transaction } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { undo, redo, addCursorBelow, selectParentSyntax } from '@codemirror/commands'
 import { openSearchPanel, selectNextOccurrence } from '@codemirror/search'
@@ -99,6 +99,10 @@ export function replaceDocument(text: string) {
   if (!view) return
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: text },
+    // Programmatic loads (revert, format, rename, tab switch) must not pollute
+    // the undo history — otherwise tapping Undo after switching tabs would
+    // write one file's text into another.
+    annotations: Transaction.addToHistory.of(false),
   })
   view.focus()
 }

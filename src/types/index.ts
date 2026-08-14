@@ -157,6 +157,8 @@ export interface GitHubRepo {
   updated_at: string
   default_branch: string
   clone_url: string
+  /** Repo size in KB (0 usually means an empty repo). */
+  size?: number
 }
 
 export interface GitHubTreeItem {
@@ -228,6 +230,20 @@ export interface CloneProgress {
   label: string
   done: number
   total: number
+}
+
+/** Options for "Upload to GitHub" — either create a brand-new repo or push
+ *  into an existing (empty) one. */
+export interface UploadToGitHubOptions {
+  /** Commit message for the initial commit. */
+  message?: string
+  /** Create a new repo with this name (no owner/repo given). */
+  repoName?: string
+  description?: string
+  private?: boolean
+  /** Upload into an existing repo instead (must be empty). */
+  owner?: string
+  repo?: string
 }
 
 export type PreviewMode = 'editor' | 'split' | 'preview'

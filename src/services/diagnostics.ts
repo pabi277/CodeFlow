@@ -4,6 +4,7 @@
 
 import type { Diagnostic, DiagnosticSeverity, FileNode } from '../types'
 import { detectLanguage } from '../utils/language'
+import { diagnoseC } from '../editor/cLanguage'
 
 const MAX_FILE_CHARS = 150_000
 const MAX_DIAGNOSTICS = 200
@@ -66,6 +67,7 @@ export function collectDrafts(content: string, path: string): Draft[] {
 
   if (lang === 'json') drafts.push(...diagnoseJson(content))
   else if (BRACKET_LANGS.has(lang)) drafts.push(...diagnoseBrackets(content, lang))
+  if (lang === 'c') drafts.push(...diagnoseC(content))
 
   if (lang === 'markdown') drafts.push(...diagnoseMarkdown(content))
   if (lang === 'html' || lang === 'xml') drafts.push(...diagnoseMarkup(content, lang))

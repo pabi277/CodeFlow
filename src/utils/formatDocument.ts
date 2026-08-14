@@ -1,6 +1,4 @@
-// Document formatter. JSON is pretty-printed locally; JS/TS/HTML/CSS/Markdown
-// go through Prettier (lazy-loaded). Everything else gets trailing-whitespace
-// stripped and a single trailing newline.
+import { formatCIndent } from './formatC'
 
 export type FormatResult =
   | { ok: true; text: string }
@@ -34,6 +32,10 @@ export async function formatDocument(content: string, language: string, tabSize 
     } catch (err) {
       return { ok: false, error: (err as Error).message || 'Invalid JSON' }
     }
+  }
+
+  if (language === 'c' || language === 'cpp') {
+    return { ok: true, text: formatCIndent(content, tabSize) }
   }
 
   const parser = PRETTIER_PARSERS[language]

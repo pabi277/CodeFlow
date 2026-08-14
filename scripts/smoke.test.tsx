@@ -44,6 +44,7 @@ import { GitLog } from '../src/components/GitHub/GitLog'
 import { PullRequests } from '../src/components/GitHub/PullRequests'
 import { PluginHost } from '../src/components/PluginHost'
 import { RepoBrowser } from '../src/components/GitHub/RepoBrowser'
+import { UploadModal } from '../src/components/GitHub/UploadModal'
 import { CommitModal } from '../src/components/GitHub/CommitModal'
 import { BranchPicker } from '../src/components/GitHub/BranchPicker'
 import { Breadcrumbs } from '../src/components/Breadcrumbs'
@@ -78,6 +79,7 @@ const COMPONENTS: [string, React.ComponentType][] = [
   ['PullRequests', PullRequests],
   ['PluginHost', PluginHost],
   ['RepoBrowser', RepoBrowser],
+  ['UploadModal', UploadModal],
   ['CommitModal', CommitModal],
   ['BranchPicker', BranchPicker],
   ['Breadcrumbs', Breadcrumbs],

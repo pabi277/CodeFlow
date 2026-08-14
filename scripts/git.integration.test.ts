@@ -1,4 +1,9 @@
-/* Integration test for the Phase 2 git flow (clone → edit → status → commit → pull).
+/* Integration test for the git flow (clone → edit → status → commit → pull)
+ * plus the "upload to GitHub" features:
+ *   - clone an EMPTY repo (no commits) → connected empty project
+ *   - commit & push into an empty repo → creates the initial commit
+ *   - uploadProjectToGitHub → create a new repo OR fill an existing empty one
+ *   - mergeEntriesIntoProject → import a ZIP into the current project
  * Run with: npx tsx scripts/git.integration.test.ts
  * Uses fake-indexeddb for IndexedDB and a fake in-memory GitHub backend.
  */
@@ -6,7 +11,9 @@ import 'fake-indexeddb/auto'
 import { github } from '../src/services/githubApi'
 import * as gitService from '../src/services/gitService'
 import * as fsDb from '../src/db/files'
+import * as projectsDb from '../src/db/projects'
 import { db } from '../src/db/db'
+import { parseZipFile } from '../src/utils/zip'
 
 // --- tiny sha1-ish hasher (deterministic) ---
 function sha(content: string): string {
@@ -17,6 +24,13 @@ function sha(content: string): string {
   return Math.abs(h).toString(16).padStart(8, '0')
 }
 
+// --- error the real GitHub API returns for a brand-new repo with zero commits ---
+class EmptyRepoError extends Error {
+  isAxiosError = true
+  response = { status: 409, data: { message: 'Git Repository is empty.' } }
+  constructor() { super('Git Repository is empty.') }
+}
+
 // --- fake GitHub backend ---
 class FakeGitHub {
   repos: Record<string, Record<string, string>> = {}
@@ -24,13 +38,32 @@ class FakeGitHub {
   trees: Record<string, { path: string; sha: string | null }[]> = {}
   commits: Record<string, string> = {}
   branchShas: Record<string, string> = {}
+  meta: Record<string, { private: boolean; description: string | null }> = {}
+  emptyRepos = new Set<string>()
+  truncatedRepos = new Set<string>()
+  lastTreeBase: string | null | undefined
+  lastCommitParents: string[] | undefined
+  createRefCalls = 0
+  updateRefCalls = 0
+  createOrUpdateFileCalls = 0
 
   addRepo(owner: string, repo: string, files: Record<string, string>) {
-    this.repos[`${owner}/${repo}`] = files
-    this.branchShas[`${owner}/${repo}/main`] = 'initial-commit'
+    const key = `${owner}/${repo}`
+    this.repos[key] = files
+    this.meta[key] = { private: false, description: null }
+    this.branchShas[`${key}/main`] = 'initial-commit'
+  }
+
+  /** A repo that exists on GitHub but has NO commits yet. */
+  addEmptyRepo(owner: string, repo: string) {
+    const key = `${owner}/${repo}`
+    this.repos[key] = {}
+    this.meta[key] = { private: false, description: null }
+    this.emptyRepos.add(key)
   }
 
   getTree = async (_t: string, owner: string, repo: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
     const r = this.repos[`${owner}/${repo}`]
     const dirs = new Set<string>()
     for (const p of Object.keys(r)) {
@@ -45,7 +78,7 @@ class FakeGitHub {
       this.blobs[s] = content
       tree.push({ path, type: 'blob', sha: s, url: `blob:${s}` })
     }
-    return { tree, sha: 'tree-sha', truncated: false }
+    return { tree, sha: 'tree-sha', truncated: this.truncatedRepos.has(`${owner}/${repo}`) }
   }
   getFileContent = async (_t: string, url: string) => {
     const s = url.split(':')[1]
@@ -56,24 +89,77 @@ class FakeGitHub {
     this.blobs[s] = content
     return s
   }
-  getRef = async (_t: string, owner: string, repo: string, branch: string) => ({
-    object: { sha: this.branchShas[`${owner}/${repo}/${branch}`] },
-  })
-  getCommit = async (_t: string, _o: string, _r: string, sha: string) => ({
-    tree: { sha: this.commits[sha] || 'base-tree' },
+  createOrUpdateFile = async (_t: string, owner: string, repo: string, path: string, content: string, message: string, branch = 'main') => {
+    this.createOrUpdateFileCalls++
+    const key = `${owner}/${repo}`
+    if (!this.repos[key]) throw new Error('Not Found')
+    const blobS = sha(content)
+    this.blobs[blobS] = content
+    this.repos[key][path] = content
+    const commitS = sha(message + path)
+    this.commits[commitS] = 'base-tree'
+    this.branchShas[`${key}/${branch}`] = commitS
+    this.emptyRepos.delete(key)
+    return { commitSha: commitS, blobSha: blobS }
+  }
+  getRepo = async (_t: string, owner: string, repo: string) => {
+    const key = `${owner}/${repo}`
+    if (!this.repos[key]) throw new Error('Not Found')
+    const hasBranch = Object.keys(this.branchShas).some((k) => k.startsWith(`${key}/`))
+    return {
+      full_name: key,
+      name: repo,
+      description: this.meta[key]?.description ?? null,
+      language: null,
+      stargazers_count: 0,
+      private: this.meta[key]?.private ?? false,
+      updated_at: '',
+      default_branch: 'main',
+      clone_url: '',
+      size: hasBranch ? 1 : 0,
+    }
+  }
+  createRepo = async (_t: string, opts: { name: string; description?: string; private?: boolean }) => {
+    const key = `dev/${opts.name}`
+    this.repos[key] = {}
+    this.meta[key] = { private: opts.private ?? false, description: opts.description ?? null }
+    this.emptyRepos.add(key)
+    return {
+      full_name: key,
+      name: opts.name,
+      description: opts.description ?? null,
+      language: null,
+      stargazers_count: 0,
+      private: opts.private ?? false,
+      updated_at: '',
+      default_branch: 'main',
+      clone_url: '',
+      size: 0,
+    }
+  }
+  getRef = async (_t: string, owner: string, repo: string, branch: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
+    const shaValue = this.branchShas[`${owner}/${repo}/${branch}`]
+    if (!shaValue) throw new Error('Not Found')
+    return { object: { sha: shaValue } }
+  }
+  getCommit = async (_t: string, _o: string, _r: string, shaValue: string) => ({
+    tree: { sha: this.commits[shaValue] || 'base-tree' },
     message: 'x',
   })
-  createTree = async (_t: string, _o: string, _r: string, _base: string, entries: { path: string; sha: string | null }[]) => {
+  createTree = async (_t: string, _o: string, _r: string, base: string | null, entries: { path: string; sha: string | null }[]) => {
+    this.lastTreeBase = base
     const ts = sha(JSON.stringify(entries))
     this.trees[ts] = entries
     return ts
   }
-  createCommit = async (_t: string, _o: string, _r: string, message: string, treeSha: string) => {
+  createCommit = async (_t: string, _o: string, _r: string, message: string, treeSha: string, parents: string[]) => {
+    this.lastCommitParents = parents
     const cs = sha(message + treeSha)
     this.commits[cs] = treeSha
     return { sha: cs }
   }
-  updateRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+  applyRef = (owner: string, repo: string, branch: string, commitSha: string) => {
     const treeSha = this.commits[commitSha]
     const entries = this.trees[treeSha] || []
     const r = this.repos[`${owner}/${repo}`]
@@ -82,8 +168,27 @@ class FakeGitHub {
       else r[e.path] = this.blobs[e.sha]
     }
     this.branchShas[`${owner}/${repo}/${branch}`] = commitSha
+    this.emptyRepos.delete(`${owner}/${repo}`)
   }
-  listBranches = async () => [{ name: 'main' }]
+  updateRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.updateRefCalls++
+    this.applyRef(owner, repo, branch, commitSha)
+  }
+  createRef = async (_t: string, owner: string, repo: string, branch: string, commitSha: string) => {
+    this.createRefCalls++
+    this.applyRef(owner, repo, branch, commitSha)
+  }
+  listBranches = async (_t: string, owner: string, repo: string) => {
+    const prefix = `${owner}/${repo}/`
+    const names = Object.keys(this.branchShas)
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => k.slice(prefix.length))
+    return names.map((name) => ({ name }))
+  }
+  listCommits = async (_t: string, owner: string, repo: string) => {
+    if (this.emptyRepos.has(`${owner}/${repo}`)) throw new EmptyRepoError()
+    return []
+  }
 }
 
 let pass = 0
@@ -91,6 +196,29 @@ let fail = 0
 function ok(cond: boolean, msg: string) {
   if (cond) { pass++; console.log(`  ✅ ${msg}`) }
   else { fail++; console.error(`  ❌ ${msg}`) }
+}
+
+async function makeProject(name: string, files: Record<string, string>) {
+  const project = await projectsDb.createProject(name, '')
+  const root = await fsDb.createNode(project.id, null, name, 'folder', '', { isNew: false })
+  await db.projects.update(project.id, { rootFolderId: root.id })
+  await db.files.update(root.id, { path: '/' })
+  for (const [path, content] of Object.entries(files)) {
+    const parts = path.split('/')
+    const fname = parts.pop()!
+    let parentId: string | null = root.id
+    let cur = ''
+    for (const d of parts) {
+      cur = cur ? `${cur}/${d}` : d
+      const children = await fsDb.getChildren(parentId, project.id)
+      const existing = children.find((c) => c.type === 'folder' && c.name === d)
+      if (existing) { parentId = existing.id; continue }
+      const folder = await fsDb.createNode(project.id, parentId, d, 'folder', '', { isNew: false })
+      parentId = folder.id
+    }
+    await fsDb.createNode(project.id, parentId, fname, 'file', content)
+  }
+  return project
 }
 
 async function main() {
@@ -109,12 +237,17 @@ async function main() {
     getTree: fake.getTree,
     getFileContent: fake.getFileContent,
     createBlob: fake.createBlob,
+    createOrUpdateFile: fake.createOrUpdateFile,
+    getRepo: fake.getRepo,
+    createRepo: fake.createRepo,
     getRef: fake.getRef,
     getCommit: fake.getCommit,
     createTree: fake.createTree,
     createCommit: fake.createCommit,
     updateRef: fake.updateRef,
+    createRef: fake.createRef,
     listBranches: fake.listBranches,
+    listCommits: fake.listCommits,
   })
 
   console.log('\n[1] cloneRepository')
@@ -146,7 +279,6 @@ async function main() {
   ok(status.some((s) => s.path === '/main.py' && s.status === 'modified'), 'main.py appears as modified')
 
   console.log('\n[4] commitChanges (push)')
-  const modifiedNode = await fsDb.getNode(py!.id)!
   const sha = await gitService.commitChanges(project.id, { message: 'update main', includeIds: [py!.id], push: true })
   ok(typeof sha === 'string' && sha.length > 0, `commit returned sha ${sha.slice(0, 7)}`)
   // remote should now reflect the change
@@ -178,6 +310,215 @@ async function main() {
   fake.repos['octocat/hello2']['util_new.py'] = 'print("brand new")\n'
   const result2 = await gitService.pullChanges(cleanProject.id)
   ok(result2.created === 1, `pull created 1 new remote file (got ${result2.created})`)
+
+  console.log('\n[8] clone a brand-new (empty) repository')
+  fake.addEmptyRepo('octocat', 'blank')
+  const blank = await gitService.cloneRepository({ full_name: 'octocat/blank', name: 'blank', default_branch: 'main' } as any, 'blank')
+  ok(blank.github.connected && blank.github.owner === 'octocat', 'empty repo cloned as connected project')
+  ok(blank.github.branch === 'main', `empty repo uses default branch main (got ${blank.github.branch})`)
+  const blankFiles = (await fsDb.listAllInProject(blank.id)).filter((n) => n.type === 'file')
+  ok(blankFiles.length === 0, 'empty repo clone has no files')
+
+  console.log('\n[9] push the first commit to an empty repository (Commit & Push)')
+  const readme = await fsDb.createNode(blank.id, null, 'README.md', 'file', '# blank\n')
+  const srcDir = await fsDb.createNode(blank.id, null, 'src', 'folder', '', { isNew: false })
+  const appJs = await fsDb.createNode(blank.id, srcDir.id, 'app.js', 'file', 'console.log(1)\n')
+  const updatesBeforeFirstCommit = fake.updateRefCalls
+  const createRefsBeforeFirstCommit = fake.createRefCalls
+  const contentsWritesBeforeFirstCommit = fake.createOrUpdateFileCalls
+  const firstSha = await gitService.commitChanges(blank.id, { message: 'first commit', includeIds: [readme.id, appJs.id], push: true })
+  ok(typeof firstSha === 'string' && firstSha.length > 0, 'initial commit succeeded on empty repo')
+  ok(fake.repos['octocat/blank']['README.md'] === '# blank\n', 'file pushed to previously empty repo')
+  ok(fake.repos['octocat/blank']['src/app.js'] === 'console.log(1)\n', 'nested file pushed to previously empty repo')
+  ok(fake.createOrUpdateFileCalls === contentsWritesBeforeFirstCommit + 1, 'empty repo initialized through the contents API')
+  ok(fake.lastCommitParents?.length === 1, 'remaining files are committed on top of the initialization commit')
+  ok(fake.createRefCalls === createRefsBeforeFirstCommit, 'no ref is created directly against an empty repo')
+  ok(fake.updateRefCalls === updatesBeforeFirstCommit + 1, 'remaining files are pushed by updating the new branch ref')
+  ok(fake.branchShas['octocat/blank/main'] != null, 'branch ref points to the first commit')
+  ok(!fake.emptyRepos.has('octocat/blank'), 'repo no longer treated as empty after first push')
+  const committedReadme = await fsDb.getNode(readme.id)!
+  ok(committedReadme.isNew === false && committedReadme.gitSha != null, 'uploaded file synced with gitSha')
+
+  console.log('\n[10] uploadProjectToGitHub — create a brand-new repo')
+  const localProject = await makeProject('myapp', { 'main.py': 'print(1)\n', 'lib/util.py': 'def x(): pass\n' })
+  const f1 = (await fsDb.listAllInProject(localProject.id)).find((n) => n.path === '/main.py')!
+  const res = await gitService.uploadProjectToGitHub(localProject.id, { repoName: 'myapp', message: 'initial upload', private: true })
+  ok(res.owner === 'dev' && res.repo === 'myapp' && res.branch === 'main', 'uploaded to brand-new repo dev/myapp')
+  ok(fake.repos['dev/myapp']['main.py'] === 'print(1)\n', 'main.py uploaded')
+  ok(fake.repos['dev/myapp']['lib/util.py'] === 'def x(): pass\n', 'nested util.py uploaded')
+  ok(fake.meta['dev/myapp'].private === true, 'new repo created as private')
+  const localFresh = await projectsDb.getProject(localProject.id)
+  ok(localFresh!.github.connected && localFresh!.github.repo === 'myapp', 'project marked connected after upload')
+  const uploadedF1 = await fsDb.getNode(f1.id)
+  ok(uploadedF1!.isNew === false && uploadedF1!.gitSha != null, 'uploaded file tracked after upload')
+
+  console.log('\n[11] upload into an existing EMPTY repo (+ reject non-empty)')
+  fake.addEmptyRepo('octocat', 'blank2')
+  const local2 = await makeProject('local2', { 'README.md': 'hi' })
+  const res2 = await gitService.uploadProjectToGitHub(local2.id, { owner: 'octocat', repo: 'blank2', message: 'from zip' })
+  ok(res2.repo === 'blank2', 'uploaded into existing empty repo')
+  ok(fake.repos['octocat/blank2']['README.md'] === 'hi', 'existing empty repo now contains files')
+  const local3 = await makeProject('local3', { 'a.txt': 'x' })
+  let rejected = false
+  try {
+    await gitService.uploadProjectToGitHub(local3.id, { owner: 'octocat', repo: 'hello', message: 'x' })
+  } catch {
+    rejected = true
+  }
+  ok(rejected, 'uploading into a non-empty repo is rejected with an error')
+
+  console.log('\n[12] mergeEntriesIntoProject (ZIP import into the current project)')
+  const local4 = await makeProject('local4', { 'main.py': 'print("old")\n' })
+  const merged = await gitService.mergeEntriesIntoProject(local4.id, [
+    { path: 'main.py', content: 'print("new")\n' },
+    { path: 'src/util.js', content: 'export const x = 1\n' },
+    { path: 'src/extra/readme.txt', content: 'hello' },
+    { path: '__MACOSX/._junk', content: 'junk' },
+  ])
+  ok(merged.created === 2 && merged.updated === 1, `zip merge created 2 updated 1 (got ${JSON.stringify(merged)})`)
+  const all4 = await fsDb.listAllInProject(local4.id)
+  ok(all4.find((n) => n.path === '/main.py')!.content === 'print("new")\n', 'existing file overwritten by zip')
+  ok(!!all4.find((n) => n.path === '/src/util.js' && n.isNew), 'new zip file created as new')
+  ok(!!all4.find((n) => n.path === '/src/extra/readme.txt'), 'nested zip structure created')
+  ok(!all4.some((n) => n.path.includes('__MACOSX')), 'junk zip entries skipped')
+
+  console.log('\n[13] zip overwrite of a TRACKED file → marked modified')
+  const helloPy = (await fsDb.listAllInProject(project.id)).find((n) => n.path === '/main.py')!
+  const before = helloPy.content
+  const m2 = await gitService.mergeEntriesIntoProject(project.id, [{ path: 'main.py', content: 'print("zip changed")\n' }])
+  ok(m2.updated === 1, 'tracked file updated by zip merge')
+  const helloPy2 = (await fsDb.listAllInProject(project.id)).find((n) => n.path === '/main.py')!
+  ok(helloPy2.content === 'print("zip changed")\n', 'tracked file content replaced')
+  ok(before !== helloPy2.content, 'content actually changed')
+
+  console.log('\n[14] edge: empty zip / root-level file entry')
+  const m3 = await gitService.mergeEntriesIntoProject(local4.id, [])
+  ok(m3.created === 0 && m3.updated === 0, `empty zip merge is a no-op (got ${JSON.stringify(m3)})`)
+  const m4 = await gitService.mergeEntriesIntoProject(local4.id, [{ path: 'root_file.txt', content: 'hi' }])
+  ok(m4.created === 1, 'root-level zip entry becomes a file')
+
+  console.log('\n[15] edge: zip overwrite with identical content is idempotent')
+  const mainContent = (await fsDb.listAllInProject(local4.id)).find((n) => n.path === '/main.py')!.content
+  const m5 = await gitService.mergeEntriesIntoProject(local4.id, [{ path: 'main.py', content: mainContent }])
+  ok(m5.updated === 0, 'identical zip content does not mark the file modified')
+
+  console.log('\n[16] edge: upload a project with zero files')
+  const emptyProj = await makeProject('emptyproj', {})
+  const res3 = await gitService.uploadProjectToGitHub(emptyProj.id, { repoName: 'emptyproj' })
+  ok(res3.repo === 'emptyproj', 'zero-file project still uploads (creates the repo and connects)')
+  const emptyProjFresh = await projectsDb.getProject(emptyProj.id)
+  ok(!!emptyProjFresh?.github.connected && emptyProjFresh.github.repo === 'emptyproj', 'zero-file project connected to the new repo')
+  ok(fake.emptyRepos.has('dev/emptyproj'), 'zero-file repo stays empty until files are added')
+
+  console.log('\n[17] edge: upload rejects an already-connected project')
+  let rejected2 = false
+  try {
+    await gitService.uploadProjectToGitHub(project.id, { repoName: 'nope' })
+  } catch {
+    rejected2 = true
+  }
+  ok(rejected2, 'upload to an already-connected project is rejected')
+
+  console.log('\n[18] edge: empty repo with a non-"main" default branch')
+  fake.addEmptyRepo('octocat', 'odd')
+  const odd = await gitService.cloneRepository({ full_name: 'octocat/odd', name: 'odd', default_branch: 'trunk' } as any, 'odd')
+  ok(odd.github.branch === 'trunk', 'empty repo cloned with its default branch (trunk)')
+  const oddFile = await fsDb.createNode(odd.id, null, 'x.txt', 'file', 'x')
+  await gitService.commitChanges(odd.id, { message: 'c', includeIds: [oddFile.id], push: true })
+  ok(!!fake.branchShas['octocat/odd/trunk'], 'initial commit created ref refs/heads/trunk')
+
+  console.log('\n[19] edge: pull on a cloned EMPTY repo returns cleanly')
+  fake.addEmptyRepo('octocat', 'fresh')
+  const fresh = await gitService.cloneRepository({ full_name: 'octocat/fresh', name: 'fresh', default_branch: 'main' } as any, 'fresh')
+  const pr = await gitService.pullChanges(fresh.id)
+  ok(pr.created === 0 && pr.updated === 0 && pr.conflicts.length === 0, 'pull on empty repo returns an empty result')
+  const emptyLog = await gitService.getCommitLog(fresh.id)
+  ok(emptyLog.length === 0, 'commit log on empty repo returns no commits')
+
+  console.log('\n[20] edge: commit-only is rejected without losing local changes')
+  const localOnlyFile = await fsDb.createNode(fresh.id, null, 'keep-local.txt', 'file', 'keep me\n')
+  const blobsBeforeCommitOnly = Object.keys(fake.blobs).length
+  let commitOnlyError = ''
+  try {
+    await gitService.commitChanges(fresh.id, { message: 'local only', includeIds: [localOnlyFile.id], push: false })
+  } catch (err) {
+    commitOnlyError = (err as Error).message
+  }
+  ok(commitOnlyError.includes('Commit Only is not supported'), 'commit-only reports why it is unavailable')
+  ok(Object.keys(fake.blobs).length === blobsBeforeCommitOnly, 'commit-only performs no remote API writes')
+  ok(fake.emptyRepos.has('octocat/fresh'), 'commit-only does not create a remote branch')
+  const preservedLocalFile = await fsDb.getNode(localOnlyFile.id)
+  ok(preservedLocalFile?.isNew === true, 'commit-only keeps the local file marked as new')
+
+  console.log('\n[21] edge: zip merge file/folder name collisions are skipped safely')
+  const m6 = await gitService.mergeEntriesIntoProject(local4.id, [{ path: 'src', content: 'i am a file but src is a folder' }])
+  ok(m6.created === 0 && m6.updated === 0, 'file entry blocked by existing FOLDER of same name')
+  const collProj = await makeProject('coll', { 'src': 'i am a file' })
+  const m7 = await gitService.mergeEntriesIntoProject(collProj.id, [{ path: 'src/app.js', content: 'x' }])
+  ok(m7.created === 0, 'folder path blocked by existing FILE segment of same name')
+
+  console.log('\n[22] E2E: clone empty repo → import real ZIP → commit & push')
+  fake.addEmptyRepo('octocat', 'e2e')
+  const e2e = await gitService.cloneRepository({ full_name: 'octocat/e2e', name: 'e2e', default_branch: 'main' } as any, 'e2e')
+  const { default: JSZip } = await import('jszip')
+  const zip = new JSZip()
+  zip.file('index.html', '<h1>hi</h1>')
+  zip.file('src/app.js', 'console.log(1)\n')
+  zip.file('src/utils/helper.py', 'def h(): pass\n')
+  zip.folder('emptyfolder') // dir-only entries should be dropped by parseZipFile
+  const zipBlob = await zip.generateAsync({ type: 'blob' })
+  const zipEntries = await parseZipFile(zipBlob)
+  const mergedE2e = await gitService.mergeEntriesIntoProject(e2e.id, zipEntries)
+  ok(mergedE2e.created === 3, `zip import created 3 files (got ${JSON.stringify(mergedE2e)})`)
+  const e2eIds = (await fsDb.listAllInProject(e2e.id)).filter((n) => n.type === 'file' && !n.isDeleted).map((n) => n.id)
+  await gitService.commitChanges(e2e.id, { message: 'import zip', includeIds: e2eIds, push: true })
+  ok(fake.repos['octocat/e2e']['index.html'] === '<h1>hi</h1>', 'root zip file pushed to GitHub')
+  ok(fake.repos['octocat/e2e']['src/utils/helper.py'] === 'def h(): pass\n', 'nested zip file pushed to GitHub')
+
+  console.log('\n[23] git status recomputes modified from content (stale flag ignored)')
+  const trackedNew = await fsDb.createNode(project.id, null, 'tracked.txt', 'file', 'orig\n', { isNew: false, gitSha: 'sha-orig', originalContent: 'orig\n' })
+  await db.files.update(trackedNew.id, { content: 'changed\n', isGitModified: false })
+  let map23 = Object.fromEntries((await fsDb.listAllInProject(project.id)).map((n) => [n.id, n]))
+  let st23 = await gitService.computeGitStatus(project.id, map23)
+  ok(st23.some((s) => s.id === trackedNew.id && s.status === 'modified'), 'content difference detected despite isGitModified:false')
+
+  console.log('\n[24] persisted edit survives a reload (updateContent writes isGitModified)')
+  await fsDb.updateContent(trackedNew.id, 'changed2\n', true)
+  const reloaded24 = await fsDb.listAllInProject(project.id)
+  const reloadedTracked = reloaded24.find((n) => n.id === trackedNew.id)!
+  ok(reloadedTracked.isGitModified === true, 'isGitModified persisted to the files store')
+  ok(reloadedTracked.gitSha === 'sha-orig' && reloadedTracked.originalContent === 'orig\n', 'gitSha / originalContent left intact by updateContent')
+  st23 = await gitService.computeGitStatus(project.id, Object.fromEntries(reloaded24.map((n) => [n.id, n])))
+  ok(st23.some((s) => s.id === trackedNew.id && s.status === 'modified'), 'status still modified after reloading from IDB')
+
+  console.log('\n[25] delete a tracked file → tombstone → commit deletes it remotely')
+  fake.repos['octocat/hello']['del_me.txt'] = 'bye\n'
+  const delMe = await fsDb.createNode(project.id, null, 'del_me.txt', 'file', 'bye\n', { isNew: false, gitSha: 'sha-bye', originalContent: 'bye\n' })
+  await fsDb.markTrackedDeleted(delMe.id)
+  const map25 = Object.fromEntries((await fsDb.listAllInProject(project.id)).map((n) => [n.id, n]))
+  const st25 = await gitService.computeGitStatus(project.id, map25)
+  ok(st25.some((s) => s.id === delMe.id && s.status === 'deleted'), 'tracked delete shows as deleted')
+  await gitService.commitChanges(project.id, { message: 'delete del_me', includeIds: [delMe.id], push: true })
+  ok(!('del_me.txt' in fake.repos['octocat/hello']), 'commit pushed a tree entry with sha:null (remote file removed)')
+  ok(await fsDb.getNode(delMe.id) === undefined, 'tombstone hard-deleted after commit')
+
+  console.log('\n[26] delete a new file → hard delete (no tombstone)')
+  const newDelete = await fsDb.createNode(project.id, null, 'throwaway.txt', 'file', 'x\n')
+  await fsDb.deleteNode(newDelete.id)
+  ok(await fsDb.getNode(newDelete.id) === undefined, 'new file is hard-deleted immediately')
+
+  console.log('\n[27] clone of a truncated tree fails instead of looking complete')
+  fake.addRepo('octocat', 'huge', { 'a.py': 'print(1)\n' })
+  fake.truncatedRepos.add('octocat/huge')
+  let truncatedError = ''
+  try {
+    await gitService.cloneRepository({ full_name: 'octocat/huge', name: 'huge', default_branch: 'main' } as any, 'huge')
+  } catch (err) {
+    truncatedError = (err as Error).message
+  }
+  ok(truncatedError.includes('too large'), `truncated clone fails with a clear error (got "${truncatedError}")`)
+  const hugeProjects = (await projectsDb.listProjects()).filter((p) => p.name === 'huge')
+  ok(hugeProjects.length === 0, 'no project is created (or marked connected) for a truncated clone')
 
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)

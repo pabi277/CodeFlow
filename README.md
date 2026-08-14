@@ -139,10 +139,10 @@ CodeFlow stores projects locally in IndexedDB (`CodeFlowDB`), so editing remains
 
 CodeFlow picks the best available runner automatically:
 
-1. **JavaScript / TypeScript** — runs locally in the browser with captured console output.
-2. **Termux** — runs Python, C/C++, Java, Go, Rust, Node, Bash, and more on Android.
+1. **JavaScript** — runs locally in an isolated browser sandbox with captured console output.
+2. **Termux** — runs Python, TypeScript, C/C++, Java, Go, Rust, Node, Bash, and more on Android.
 3. **Judge0** — optional cloud execution when an API key is configured.
-4. **Mock output** — a friendly fallback that lets you explore the workflow.
+4. **Setup guidance** — if no real runner is available, CodeFlow explains how to connect one instead of fabricating output.
 
 Enable **Input** in the terminal panel to pass `stdin` to programs. Termux execution supports whole projects, so local imports work as expected.
 
@@ -220,10 +220,12 @@ npm run test:execution    # local and fallback execution
 npm run test:bridge       # Termux bridge and stdin
 npm run test:completions  # completion behavior
 npm run test:html-preview # local HTML/CSS/JS preview
+npm run test:oauth        # OAuth exchange and error handling
+npm run test:encoding     # Unicode GitHub round-trips
 npm run test:ide          # editor extensions and themes
 ```
 
-Additional suites cover snippets, ZIP import/export, diagnostics, Markdown, formatting, Emmet, project search, and Termux previews.
+Additional suites cover snippets, ZIP import/export, explorer actions, diagnostics, Markdown, formatting, Emmet, project search, editor history, persistence, and Termux previews.
 
 </details>
 

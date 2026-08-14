@@ -4,6 +4,15 @@
 
 import axios from 'axios'
 import { API } from '../config/api'
+import {
+  base64ToBytes,
+  base64ToText,
+  bytesToBase64,
+  dataUrlBase64,
+  isBinaryPath,
+  isImagePath,
+  textToBase64,
+} from '../utils/binary'
 import type { GitHubRepo, GitHubTreeResponse, GitHubUser, GitHubBranch, GitHubCommit, GitHubPullRequest } from '../types'
 
 const client = axios.create({ baseURL: API.githubApiBase, timeout: 30000 })
@@ -35,11 +44,11 @@ export async function getTree(token: string, owner: string, repo: string, branch
   return data
 }
 
-export async function getFileContent(token: string, url: string): Promise<string> {
+export async function getFileContent(token: string, url: string, path = ''): Promise<string> {
   setToken(token)
   const { data } = await client.get<{ content?: string; content64?: string }>(url)
   if (typeof data === 'string') return data
-  if (data.content) return decodeBase64(data.content)
+  if (data.content) return decodeBase64(data.content, path)
   return JSON.stringify(data)
 }
 
@@ -57,9 +66,15 @@ export async function getRateLimit(token: string): Promise<{ remaining: number; 
   }
 }
 
-function decodeBase64(s: string): string {
+/**
+ * Decode GitHub's base64 response. Text files are UTF-8 decoded so emoji and
+ * other non-ASCII characters round-trip correctly; binary files (images,
+ * fonts, archives, …) are kept as raw latin1 bytes, matching how binary
+ * content is stored locally.
+ */
+function decodeBase64(s: string, path = ''): string {
   try {
-    return atob(s.replace(/\s/g, ''))
+    return isBinaryPath(path) || isImagePath(path) ? base64ToBytes(s) : base64ToText(s)
   } catch {
     return s
   }
@@ -89,13 +104,84 @@ export async function listPullRequests(token: string, owner: string, repo: strin
   return data
 }
 
-export async function createBlob(token: string, owner: string, repo: string, content: string): Promise<string> {
+/** Encode a repo-relative file path for the contents API (slashes keep meaning). */
+function encodeContentsPath(path: string): string {
+  return path.split('/').map((seg) => encodeURIComponent(seg)).join('/')
+}
+
+/**
+ * Encode file content as base64 exactly the way GitHub expects it back:
+ * text files as UTF-8 (emoji and other non-ASCII survive), binary files and
+ * stored data URLs byte-for-byte. Binary content is stored locally either as
+ * a data URL (imported via ZIP / file picker) or as raw latin1 bytes (cloned
+ * from GitHub), so it must not be round-tripped through UTF-8.
+ */
+function encodeContent(content: string, path = ''): string {
+  const binaryPath = isBinaryPath(path) || isImagePath(path)
+  const dataUrl = binaryPath ? dataUrlBase64(content) : null
+  if (dataUrl) return dataUrl.data
+  if (binaryPath) return bytesToBase64(content)
+  return textToBase64(content)
+}
+
+export async function createBlob(token: string, owner: string, repo: string, content: string, path = ''): Promise<string> {
   setToken(token)
   const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/blobs`, {
-    content: btoa(unescape(encodeURIComponent(content))),
+    content: encodeContent(content, path),
     encoding: 'base64',
   })
   return data.sha
+}
+
+/**
+ * Create a single file through the contents API. This is the ONLY way to put
+ * the very first commit into a brand-new (empty) repository: the git database
+ * endpoints (blobs / trees / commits / refs) all respond 409 "Git Repository
+ * is empty" until the repository has been initialized by a first commit.
+ */
+export async function createOrUpdateFile(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  content: string,
+  message: string,
+  branch?: string,
+): Promise<{ commitSha: string; blobSha: string }> {
+  setToken(token)
+  const { data } = await client.put<{ content: { sha: string }; commit: { sha: string } }>(
+    `/repos/${owner}/${repo}/contents/${encodeContentsPath(path)}`,
+    {
+      message,
+      content: encodeContent(content, path),
+      ...(branch ? { branch } : {}),
+    },
+  )
+  return { commitSha: data.commit.sha, blobSha: data.content.sha }
+}
+
+/** Create a brand-new repository under the authenticated user. */
+export async function createRepo(
+  token: string,
+  opts: { name: string; description?: string; private?: boolean },
+): Promise<GitHubRepo> {
+  setToken(token)
+  const { data } = await client.post<GitHubRepo>('/user/repos', {
+    name: opts.name,
+    description: opts.description || '',
+    private: opts.private ?? false,
+    auto_init: false,
+    has_issues: true,
+    has_wiki: true,
+  })
+  return data
+}
+
+/** Fetch a single repository (to learn its default branch / emptiness). */
+export async function getRepo(token: string, owner: string, repo: string): Promise<GitHubRepo> {
+  setToken(token)
+  const { data } = await client.get<GitHubRepo>(`/repos/${owner}/${repo}`)
+  return data
 }
 
 export async function getRef(token: string, owner: string, repo: string, branch: string): Promise<{ object: { sha: string } }> {
@@ -114,11 +200,14 @@ export async function createTree(
   token: string,
   owner: string,
   repo: string,
-  baseTree: string,
+  baseTree: string | null,
   tree: { path: string; mode: string; type: string; sha: string | null }[],
 ): Promise<string> {
   setToken(token)
-  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, { base_tree: baseTree, tree })
+  // base_tree must be omitted for the first commit in a brand-new (empty) repository.
+  const body: Record<string, unknown> = { tree }
+  if (baseTree) body.base_tree = baseTree
+  const { data } = await client.post<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, body)
   return data.sha
 }
 

@@ -21,8 +21,10 @@ import { CommandPalette } from './components/CommandPalette'
 import { FindInProject } from './components/FindInProject'
 import { Settings } from './components/Settings'
 import { ContextMenu } from './components/Shared/ContextMenu'
+import { ProgramInputWizard } from './components/ProgramInputWizard'
 import { Toasts } from './components/Shared/Toasts'
 import { RepoBrowser } from './components/GitHub/RepoBrowser'
+import { UploadModal } from './components/GitHub/UploadModal'
 import { CommitModal } from './components/GitHub/CommitModal'
 import { DiffViewer } from './components/GitHub/DiffViewer'
 import { BranchPicker } from './components/GitHub/BranchPicker'
@@ -35,6 +37,7 @@ import { PluginHost } from './components/PluginHost'
 import { FileListSidebar } from './components/FileExplorer/FileListSidebar'
 import { initBuiltinPlugins } from './plugins/builtin'
 import { usePWA } from './hooks/usePWA'
+import { useHardwareBack } from './hooks/useHardwareBack'
 import { AiOutlineDownload } from 'react-icons/ai'
 import { VscCircleSlash, VscClose } from 'react-icons/vsc'
 
@@ -72,6 +75,7 @@ function InstallBanner() {
 
 export default function App() {
   useIDEShortcuts()
+  useHardwareBack()
   const booted = useStore((s) => s.booted)
   const bootstrap = useStore((s) => s.bootstrap)
   const activeProjectId = useStore((s) => s.activeProjectId)
@@ -110,6 +114,26 @@ export default function App() {
     applyThemePreset(themePreset)
   }, [themePreset])
 
+  // Persist unsaved edits + editor state when the tab is hidden or unloaded.
+  // Android kills the PWA without warning — pagehide / visibilitychange are the
+  // last reliable chance to write the debounced saves and caret/scroll.
+  useEffect(() => {
+    const persistNow = () => {
+      const s = useStore.getState()
+      void s.flushDirtyTabs()
+      void s.persistEditorState()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow()
+    }
+    window.addEventListener('pagehide', persistNow)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', persistNow)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   if (!booted) {
     return <div className="flex h-dvh items-center justify-center bg-surface text-ink-muted dark:bg-panel">Loading…</div>
   }
@@ -145,11 +169,13 @@ export default function App() {
       <FindInProject />
       <Settings />
       <ContextMenu />
+      <ProgramInputWizard />
       <ImportProjectModal
         open={importProjectOpen}
         onClose={() => useStore.getState().setImportProjectOpen(false)}
       />
       <RepoBrowser />
+      <UploadModal />
       <CommitModal />
       <DiffViewer />
       <BranchPicker />

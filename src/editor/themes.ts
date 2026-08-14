@@ -26,11 +26,12 @@ export function editorTheme(p: ThemePalette): ReturnType<typeof EditorView.theme
       '.cm-activeLineGutter': { backgroundColor: 'transparent', color: p.text },
       '.cm-matchingBracket': { backgroundColor: `${p.accent}33`, outline: `1px solid ${p.accent}88` },
       '.cm-foldPlaceholder': { backgroundColor: p.input, border: 'none', color: p.text },
-      '.cm-tooltip': { backgroundColor: p.panel, color: p.text, border: `1px solid ${p.border}` },
-      // mobile-friendly completion dropdown
-      '.cm-tooltip.cm-tooltip-autocomplete > ul': { maxHeight: '40vh', overflowY: 'auto', fontFamily: 'ui-monospace, monospace' },
+      '.cm-tooltip': { backgroundColor: p.panel, color: p.text, border: `1px solid ${p.border}`, zIndex: '30' },
+      // Sit above the cursor / keyboard toolbar so suggestions do not cover quick keys
+      '.cm-tooltip.cm-tooltip-autocomplete': { maxWidth: 'min(92vw, 360px)' },
+      '.cm-tooltip.cm-tooltip-autocomplete > ul': { maxHeight: '28vh', overflowY: 'auto', fontFamily: 'ui-monospace, monospace' },
       '.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: `${p.accent}22` },
-      '.cm-tooltip-autocomplete ul li': { padding: '9px 12px', minHeight: '38px', display: 'flex', alignItems: 'center' },
+      '.cm-tooltip-autocomplete ul li': { padding: '8px 10px', minHeight: '34px', display: 'flex', alignItems: 'center' },
       '.cm-completionIcon': { opacity: 0.7 },
       '.cm-panels': { backgroundColor: p.panel, color: p.text },
       '.cm-panels.cm-panels-bottom': { borderTop: `1px solid ${p.border}` },
