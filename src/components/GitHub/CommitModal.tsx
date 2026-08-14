@@ -75,7 +75,7 @@ export function CommitModal() {
           <button
             onClick={() => doCommit(message, ids, true)}
             disabled={!message.trim() || !ids.length}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-3 py-3 text-sm font-semibold text-white disabled:opacity-40"
+            className="btn-primary flex w-full items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold text-white disabled:opacity-40 disabled:shadow-none"
           >
             <FiGitCommit /> Commit &amp; Push
           </button>

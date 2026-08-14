@@ -45,12 +45,12 @@ export function KeyboardToolbar() {
           above don't hide behind the fixed toolbar */}
       <div aria-hidden className="shrink-0" style={{ height: 60 + kbHeight }} />
       <div
-        className="fixed inset-x-0 z-40 flex items-center gap-1 overflow-x-auto border-t border-border/60 bg-surface px-2 py-1.5 shadow-[0_-2px_8px_rgba(0,0,0,0.1)] transition-[bottom] duration-150 dark:bg-panel [scrollbar-width:none]"
+        className="bar-glass fixed inset-x-0 z-40 flex items-center gap-1 overflow-x-auto border-t border-border/50 px-2 py-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.18)] transition-[bottom] duration-150 [scrollbar-width:none]"
         style={{ bottom: kbHeight, scrollbarWidth: 'none', paddingBottom: 'max(10px, env(safe-area-inset-bottom, 0px))' }}
       >
       <button
         onPointerDown={(e) => { e.preventDefault(); triggerCompletion() }}
-        className="mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent transition-transform duration-100 active:scale-95"
+        className="icon-tile mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white transition-transform duration-100 active:scale-95"
         style={{ touchAction: 'manipulation' }}
         aria-label="Show suggestions"
       >
@@ -62,7 +62,7 @@ export function KeyboardToolbar() {
           <button
             key={`${k}-${i}`}
             onPointerDown={(e) => { e.preventDefault(); press(k) }}
-            className={`flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-2 text-[15px] transition-transform duration-100 active:scale-95 active:bg-white/10 ${
+            className={`kbd-key flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-2 text-[15px] ${
               special ? 'font-semibold text-accent' : 'text-ink'
             }`}
             style={{ touchAction: 'manipulation' }}

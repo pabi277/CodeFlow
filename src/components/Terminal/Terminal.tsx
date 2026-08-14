@@ -21,13 +21,14 @@ export function TerminalHost() {
     return (
       <button
         onClick={() => openBottomPanel('terminal')}
-        className="flex h-9 w-full items-center gap-2 border-t border-ink/10 bg-surface px-3 text-left text-[12px] text-ink-muted active:bg-white/5 dark:border-white/10"
+        className="bar-glass relative flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] text-ink-muted transition-colors active:bg-white/5"
         aria-label="Expand panel"
       >
-        <MdExpandMore />
-        <span className="min-w-0 flex-1 truncate">{last ? last.text : 'Terminal — no output yet'}</span>
+        <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-40" />
+        <MdExpandMore className="text-accent" />
+        <span className="min-w-0 flex-1 truncate font-mono">{last ? last.text : 'Terminal — no output yet'}</span>
         {errors > 0 && (
-          <span className="flex items-center gap-1 text-red-400">
+          <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 font-semibold text-red-400">
             <VscError /> {errors}
           </span>
         )}
@@ -85,12 +86,14 @@ function TerminalPanel() {
   const errors = diagnostics.filter((d) => d.severity === 'error').length
 
   return (
-    <div ref={parentRef} className="absolute inset-x-0 bottom-0 flex flex-col bg-panel/95 backdrop-blur shadow-modal" style={{ height: `${terminalHeight}%` }}>
+    <div ref={parentRef} className="absolute inset-x-0 bottom-0 flex flex-col border-t border-border/50 bg-panel/95 backdrop-blur-md shadow-modal animate-sheet-up" style={{ height: `${terminalHeight}%` }}>
       <div
-        className="group/term h-1.5 cursor-row-resize touch-none border-b border-border/40 bg-transparent transition-colors hover:bg-accent/60 active:bg-accent/80"
+        className="group/term h-2 cursor-row-resize touch-none bg-transparent"
         onPointerDown={onDragStart}
         aria-label="Drag to resize panel"
-      />
+      >
+        <span aria-hidden className="mx-auto mt-0.5 block h-1 w-10 rounded-full bg-ink/20 transition-colors group-hover/term:bg-accent/60" />
+      </div>
       <div className="flex h-10 items-center gap-1 border-b border-border/60 px-1">
         <PanelTab id="terminal" current={tab} onSelect={setTab} icon={<VscTerminal />} label="Terminal" />
         <PanelTab id="problems" current={tab} onSelect={setTab} icon={<VscError />} label={errors ? `Problems ${errors}` : 'Problems'} badge={errors > 0} />
@@ -161,8 +164,8 @@ function TerminalPanel() {
                   autoComplete="off"
                   className="min-w-0 flex-1 rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent"
                 />
-                <button type="submit" className="rounded-lg bg-accent px-3 py-2 text-[12px] font-semibold text-white">Send</button>
-                <button type="button" onClick={() => void stopLiveRun()} className="rounded-lg bg-red-500/80 px-3 py-2 text-[12px] font-semibold text-white">Stop</button>
+                <button type="submit" className="btn-primary rounded-lg px-3 py-2 text-[12px] font-semibold text-white">Send</button>
+                <button type="button" onClick={() => void stopLiveRun()} className="rounded-lg bg-gradient-to-b from-red-500 to-red-700 px-3 py-2 text-[12px] font-semibold text-white shadow-[0_2px_10px_-2px_rgba(239,68,68,0.6)] transition-transform active:scale-95">Stop</button>
               </form>
             </>
           ) : (
@@ -195,8 +198,8 @@ function PanelTab({ id, current, onSelect, icon, label, badge }: {
   return (
     <button
       onClick={() => onSelect(id)}
-      className={`flex h-full items-center gap-1.5 border-b-2 px-2.5 text-[12px] font-medium ${
-        active ? 'border-accent text-ink' : 'border-transparent text-ink-muted'
+      className={`flex h-full items-center gap-1.5 border-b-2 px-2.5 text-[12px] font-medium transition-colors ${
+        active ? 'border-accent text-accent' : 'border-transparent text-ink-muted hover:text-ink'
       } ${badge && !active ? 'text-red-400' : ''}`}
     >
       {icon}
