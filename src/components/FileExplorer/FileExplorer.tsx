@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { MdExpandMore } from 'react-icons/md'
 import { AiOutlineSearch, AiOutlinePlus } from 'react-icons/ai'
+import { FiMoreVertical } from 'react-icons/fi'
 import type { FileNode } from '../../types'
 import { FileIcon } from '../../utils/getFileIcon'
 import { BottomSheet } from '../Shared/BottomSheet'
@@ -42,6 +43,18 @@ export function FileExplorer() {
     openContextMenu({ nodeId, x: clientX, y: clientY, clientX, clientY })
   }
 
+  const MoreBtn = ({ nodeId, label }: { nodeId: string; label: string }) => (
+    <button
+      onClick={(e) => { e.stopPropagation(); openMenu(nodeId, e.clientX, e.clientY) }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openMenu(nodeId, e.clientX, e.clientY) }}
+      onDragStart={(e) => e.stopPropagation()}
+      aria-label={`Options for ${label}`}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-muted/70 active:bg-white/10"
+    >
+      <FiMoreVertical size={15} />
+    </button>
+  )
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 p-3 pb-2">
@@ -51,13 +64,13 @@ export function FileExplorer() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search files…"
-            className="h-10 w-full rounded-md border border-border/60 bg-input pl-9 pr-3 text-[14px] text-ink outline-none transition-shadow focus:border-accent focus:shadow-[0_0_0_3px_rgba(9,105,218,0.15)] placeholder:text-ink-muted/60"
+            className="h-10 w-full rounded-lg border border-border/60 bg-input pl-9 pr-3 text-[14px] text-ink outline-none transition-shadow focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_25%,transparent)] placeholder:text-ink-muted/60"
           />
         </div>
         <button
           onClick={() => setNewItemModal({ parentId: null, type: 'file' })}
           aria-label="New file"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent text-white active:opacity-80"
+          className="btn-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white"
         >
           <AiOutlinePlus size={20} />
         </button>
@@ -69,7 +82,8 @@ export function FileExplorer() {
             searchResults.map((n) => (
               <div key={n.id} className="flex items-center gap-2 px-4 py-1.5 active:bg-white/5" onClick={() => openFile(n.id)}>
                 <FileIcon name={n.name} type="file" size={16} className="text-ink-muted" />
-                <span className="text-[13px] text-ink">{n.path}</span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{n.path}</span>
+                <MoreBtn nodeId={n.id} label={n.name} />
               </div>
             ))
           ) : (
@@ -93,7 +107,7 @@ export function FileExplorer() {
     return (
       <div>
         <div
-          className="mx-1 flex items-center gap-1 rounded py-1.5 pr-2 active:bg-accent/10"
+          className="mx-1 flex items-center gap-1 rounded py-1.5 pr-1.5 active:bg-accent/10"
           style={{ paddingLeft: depth * 18 + 6 }}
           draggable
           onDragStart={(e) => { e.dataTransfer.setData('text/node-id', nodeId); e.dataTransfer.effectAllowed = 'move' }}
@@ -115,7 +129,8 @@ export function FileExplorer() {
           <span className="mr-1.5 shrink-0">
             <FileIcon name={node.name} type={node.type} isOpen={isOpen} size={18} />
           </span>
-          <span className={`truncate text-[13.5px] ${nameColor(node)}`}>{node.name}</span>
+          <span className={`min-w-0 flex-1 truncate text-[13.5px] ${nameColor(node)}`}>{node.name}</span>
+          <MoreBtn nodeId={nodeId} label={node.name} />
         </div>
         {isFolder && isOpen && node.childIds.filter((cid) => !nodeMap[cid]?.isDeleted).map((cid) => <TreeNode key={cid} nodeId={cid} depth={depth + 1} />)}
       </div>

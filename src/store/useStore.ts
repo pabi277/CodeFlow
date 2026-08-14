@@ -28,7 +28,8 @@ import * as historyDb from '../db/executionHistory'
 import { uuid } from '../utils/id'
 import { detectLanguage, languageName, canRunLocally } from '../utils/language'
 import * as gitService from '../services/gitService'
-import { executeCode, checkTermuxBridge, clearBridgeCache, type ExecutionSource } from '../services/executionService'
+import { executeCode, checkTermuxBridge, clearBridgeCache, getBridgeError, pollTermuxSession, writeTermuxStdin, killTermuxSession, type ExecutionSource } from '../services/executionService'
+import { usesInteractiveInput } from '../utils/language'
 import { collectProjectFiles, previewUrlFor, syncTermuxWorkspace, termuxSupportsPreview } from '../services/termuxPreview'
 import { buildHtmlPreview } from '../utils/htmlPreview'
 import { isHtmlPreview } from '../utils/markdown'
@@ -36,18 +37,21 @@ import * as authService from '../services/authService'
 import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
 import { DEFAULT_SETTINGS } from '../config/defaults'
-import { downloadProjectZip, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { downloadProjectZip, buildSubtreeZip, storedContentToBlob, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
+import { mimeForPath } from '../utils/binary'
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
 import { replaceInText } from '../utils/projectSearch'
-import { goToPosition, replaceDocument, getWordAtCursor } from '../utils/editorApi'
+import { goToPosition, replaceDocument, getWordAtCursor, getEditor } from '../utils/editorApi'
 import { findDefinitions, findReferences as findRefs, renameInText, wordAt } from '../utils/symbolNav'
 import { parseThemeText } from '../utils/themeImport'
 import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
+import { inputPrompts, programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
+export type InputWizardState = { fileId: string; prompts: string[]; values: string[]; index: number } | null
 export type Toast = { id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }
 
 const TAB_SYNC_ID = uuid()
@@ -101,6 +105,7 @@ interface StoreState {
   // terminal / execution
   terminalOpen: boolean
   terminalHeight: number
+  inputWizard: InputWizardState
   stdin: string
   running: boolean
   runningFileId: string | null
@@ -144,6 +149,9 @@ interface StoreState {
   activePluginPanel: string | null
   landscapeSplit: boolean
   termuxAvailable: boolean
+  termuxError: string | null
+  liveSessionId: string | null
+  livePromptOpen: boolean
   lastRunSource: ExecutionSource | null
   homeAction: 'new' | null
   importProjectOpen: boolean
@@ -182,7 +190,6 @@ interface StoreState {
   openCommit: () => void
   closeCommit: () => void
   doCommit: (message: string, includeIds: string[], push: boolean) => Promise<void>
-  flushDirtyTabs: () => Promise<void>
   openBranchPicker: () => void
   closeBranchPicker: () => void
   loadBranches: () => Promise<void>
@@ -252,6 +259,8 @@ interface StoreState {
   importThemeJson: (text: string) => Promise<void>
   openPreviewInNewTab: () => Promise<void>
   exportProjectZip: () => Promise<void>
+  downloadNode: (id: string) => Promise<void>
+  shareNode: (id: string) => Promise<void>
   importProjectFromEntries: (entries: { path: string; content: string }[], name?: string) => Promise<Project | null>
   importProjectFromZip: (file: File) => Promise<void>
   importProjectFromFiles: (files: FileList | File[]) => Promise<void>
@@ -273,6 +282,7 @@ interface StoreState {
   createNode: (parentId: string | null, type: 'file' | 'folder', name: string) => Promise<FileNode | null>
   saveContent: (id: string, content: string) => void
   persistContent: (id: string) => Promise<void>
+  flushDirtyTabs: () => Promise<void>
   renameNode: (id: string, newName: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   duplicateNode: (id: string) => Promise<void>
@@ -286,8 +296,12 @@ interface StoreState {
   convertActiveLineEnding: (to: LineEnding) => void
 
   // execution
-  runCurrentFile: () => Promise<void>
+  runCurrentFile: (options?: { allowEmptyInput?: boolean }) => Promise<void>
+  sendLiveInput: (line: string) => Promise<void>
+  stopLiveRun: () => Promise<void>
   setStdin: (v: string) => void
+  setInputPanelOpen: (v: boolean) => void
+  setInputWizard: (wizard: InputWizardState) => void
   setTerminalOpen: (v: boolean) => void
   setTerminalHeight: (v: number) => void
   clearTerminal: () => void
@@ -335,6 +349,7 @@ export const useStore = create<StoreState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   terminalOpen: false,
   terminalHeight: 40,
+  inputWizard: null,
   stdin: '',
   running: false,
   runningFileId: null,
@@ -373,6 +388,9 @@ export const useStore = create<StoreState>((set, get) => ({
   activePluginPanel: null,
   landscapeSplit: false,
   termuxAvailable: false,
+  termuxError: null,
+  liveSessionId: null,
+  livePromptOpen: false,
   lastRunSource: null,
   homeAction: null,
   importProjectOpen: false,
@@ -394,13 +412,13 @@ export const useStore = create<StoreState>((set, get) => ({
   referencesOpen: false,
 
   bootstrap: async () => {
-    const [projects, settings, editorState, storedAuth] = await Promise.all([
+    const [projects, settings, storedAuth] = await Promise.all([
       projectsDb.listProjects(),
       settingsDb.loadSettings(),
-      editorDb.loadEditorState(),
       authService.loadStoredAuth(),
     ])
     let auth = storedAuth
+
     // Handle OAuth redirects both on the explicit callback route and on hosts
     // that fall back to the SPA entry point before the route rewrite runs.
     if (
@@ -421,20 +439,33 @@ export const useStore = create<StoreState>((set, get) => ({
         get().showToast(authService.oauthErrorMessage(err), 'error')
       }
     }
-    // restore a project
+
+    // Restore the most-recently-opened project (listProjects sorts by
+    // lastOpenedAt). `projects[0]` is the latest, not an arbitrary row.
     const active = projects.length ? projects[0] : null
-    set({ projects, settings, auth, booted: true })
+    setBridgeOrigin(settings.termuxBridgeUrl)
+    set({
+      projects,
+      settings,
+      auth,
+      booted: true,
+    })
     await get().setActiveProject(active?.id ?? null)
-    // restore tabs
-    if (editorState.openTabIds.length) {
-      set({
-        openTabs: editorState.openTabIds,
-        activeTabId: editorState.activeTabId,
-        pinnedTabs: editorState.pinnedTabIds || [],
-        terminalOpen: editorState.terminalOpen,
-        terminalHeight: editorState.terminalHeight || 40,
-      })
-    }
+    // Restore tabs and editor chrome for THIS project (per-project state).
+    const editorState = await editorDb.loadEditorState(active?.id)
+    const nodeMap = get().nodeMap
+    const openTabIds = editorState.openTabIds.filter((id) => nodeMap[id]?.type === 'file')
+    const activeTabId = editorState.activeTabId && nodeMap[editorState.activeTabId]?.type === 'file' ? editorState.activeTabId : (openTabIds[0] ?? null)
+    const pinnedTabIds = (editorState.pinnedTabIds || []).filter((id) => nodeMap[id]?.type === 'file')
+    set({
+      openTabs: openTabIds,
+      activeTabId,
+      pinnedTabs: pinnedTabIds,
+      cursorPositions: editorState.cursorPositions || {},
+      scrollPositions: editorState.scrollPositions || {},
+      terminalOpen: editorState.terminalOpen,
+      terminalHeight: editorState.terminalHeight || 40,
+    })
     await get().loadHistory()
     await get().refreshGitStatus()
     void get().refreshTermuxStatus()
@@ -449,8 +480,15 @@ export const useStore = create<StoreState>((set, get) => ({
   setOffline: (v) => set({ offline: v }),
 
   setActiveProject: async (id) => {
+    const prev = get().activeProjectId
+    if (prev && prev !== id) {
+      // Flush unsaved edits and editor chrome before swapping out nodeMap, or
+      // the debounced save would look up the old ids against the new project.
+      await get().flushDirtyTabs()
+      await get().persistEditorState()
+    }
     if (!id) {
-      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, expanded: {}, diagnostics: [], gitConflicts: [] })
+      set({ activeProjectId: null, nodeMap: {}, openTabs: [], activeTabId: null, pinnedTabs: [], dirtyTabs: {}, cursorPositions: {}, scrollPositions: {}, expanded: {}, diagnostics: [], gitConflicts: [], inputWizard: null })
       return
     }
     await projectsDb.touchProject(id)
@@ -460,7 +498,20 @@ export const useStore = create<StoreState>((set, get) => ({
     const rootId = getRootNodeId(nodeMap)
     const lastSaved: Record<string, string> = {}
     for (const n of nodes) if (n.type === 'file') lastSaved[n.id] = n.content
-    set({ activeProjectId: id, nodeMap, openTabs: [], activeTabId: null, dirtyTabs: {}, expanded: rootId ? { [rootId]: true } : {}, gitStatus: [], lastSaved })
+    set({
+      activeProjectId: id,
+      nodeMap,
+      openTabs: [],
+      activeTabId: null,
+      pinnedTabs: [],
+      dirtyTabs: {},
+      cursorPositions: {},
+      scrollPositions: {},
+      expanded: rootId ? { [rootId]: true } : {},
+      gitStatus: [],
+      lastSaved,
+      inputWizard: null,
+    })
     await get().refreshGitStatus()
     get().refreshDiagnostics()
   },
@@ -500,7 +551,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   openFile: async (id) => {
     const node = get().nodeMap[id]
-    if (!node || node.type !== 'file') return
+    if (!node || node.type !== 'file' || node.isDeleted) return
     const dirty = get().dirtyTabs
     set((s) => ({
       openTabs: s.openTabs.includes(id) ? s.openTabs : insertTab(s.openTabs, s.pinnedTabs, id),
@@ -554,7 +605,6 @@ export const useStore = create<StoreState>((set, get) => ({
           get().showToast('Many tabs are open — consider closing some', 'info')
         }
       }
-      void get().refreshGitStatus()
       return node
     } catch (err) {
       get().showToast((err as Error).message, 'error')
@@ -565,6 +615,7 @@ export const useStore = create<StoreState>((set, get) => ({
   renameNode: async (id, newName) => {
     try {
       // Flush unsaved edits first — rename refreshes the tree from IndexedDB.
+      // files.ts records git deletes+adds for tracked files AND folders.
       await get().flushDirtyTabs()
       await fsDb.renameNode(id, newName)
       await get().refreshProject()
@@ -577,12 +628,21 @@ export const useStore = create<StoreState>((set, get) => ({
   deleteNode: async (id) => {
     const ids = await fsDb.collectSubtreeIds(id)
     const map = get().nodeMap
-    const { tombstoned } = await fsDb.deleteNodeGitAware(id)
-    const tombstoneSet = new Set(tombstoned)
+    const nodes = ids.map((i) => map[i]).filter((n): n is FileNode => !!n)
+    // Tracked files (including ones already tombstoned) stay as tombstones so
+    // git keeps a deletion to commit; untracked files and all folders are
+    // hard-deleted (current behaviour).
+    const tombstoneIds = new Set(nodes.filter((n) => n.type === 'file' && !n.isNew).map((n) => n.id))
+    for (const n of nodes) {
+      if (tombstoneIds.has(n.id)) await fsDb.markTrackedDeleted(n.id)
+      else await fsDb.hardDelete(n.id)
+    }
+    // Tombstones stay in the map (explorer shows them struck through, the git
+    // panel lists them as deleted); everything else disappears.
     const nodeMap = { ...map }
-    for (const i of ids) {
-      if (tombstoneSet.has(i) && map[i]) nodeMap[i] = { ...map[i], isDeleted: true }
-      else delete nodeMap[i]
+    for (const n of nodes) {
+      if (tombstoneIds.has(n.id)) nodeMap[n.id] = { ...n, isDeleted: true }
+      else delete nodeMap[n.id]
     }
     const dirtyTabs = { ...get().dirtyTabs }
     for (const i of ids) delete dirtyTabs[i]
@@ -635,15 +695,26 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast((err as Error).message, 'error')
     }
   },
-
   flushDirtyTabs: async () => {
     const dirtyIds = Object.keys(get().dirtyTabs).filter((id) => get().dirtyTabs[id])
     // Persist every dirty tab now — do NOT wait for the debounce. Commit, pull,
     // upload, export, and page-hide all read content straight from IndexedDB.
-    await Promise.all(dirtyIds.map((fid) => get().persistContent(fid)))
+    await Promise.all(dirtyIds.map((id) => get().persistContent(id)))
   },
 
   persistEditorState: async () => {
+    // Capture the live caret/scroll synchronously so a pagehide right after a
+    // keystroke still restores the editor position.
+    const id = get().activeTabId
+    const view = getEditor()
+    if (id && view) {
+      const pos = view.state.selection.main.head
+      const line = view.state.doc.lineAt(pos)
+      set((s) => ({
+        cursorPositions: { ...s.cursorPositions, [id]: { line: line.number, col: pos - line.from + 1 } },
+        scrollPositions: { ...s.scrollPositions, [id]: view.scrollDOM.scrollTop },
+      }))
+    }
     const state: EditorPersistState = {
       openTabIds: get().openTabs,
       activeTabId: get().activeTabId,
@@ -653,7 +724,7 @@ export const useStore = create<StoreState>((set, get) => ({
       terminalOpen: get().terminalOpen,
       terminalHeight: get().terminalHeight,
     }
-    await editorDb.saveEditorState(state)
+    await editorDb.saveEditorState(state, get().activeProjectId)
   },
 
   saveActiveEditorCursor: (id, cursor) => {
@@ -712,15 +783,16 @@ export const useStore = create<StoreState>((set, get) => ({
     get().showToast(`Converted to ${to.toUpperCase()}`, 'success')
   },
 
-  runCurrentFile: async () => {
+  runCurrentFile: async (options) => {
     const s = get()
-    // Run the configured main file for this project if one exists, else active tab
-    let id = s.activeTabId
-    const pid = s.activeProjectId
-    const configuredMain = pid ? s.settings.runConfiguration[pid] : undefined
-    if (configuredMain && s.nodeMap[configuredMain]) id = configuredMain
-    const node = id ? s.nodeMap[id] : undefined
-    if (!node || node.type !== 'file') {
+    if (s.running) {
+      get().showToast('A run is already in progress', 'info')
+      return
+    }
+    // Run the active file unless the project has a configured main file — the
+    // green Run button shows the override's name in that case (see TopBar).
+    const node = runTargetNode(s)
+    if (!node) {
       get().showToast('Open a file to run it', 'info')
       return
     }
@@ -729,8 +801,35 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast('Code execution requires internet connection. Your code is saved and will run when you are back online.', 'info')
       return
     }
-    set({ running: true, runningFileId: node.id, terminalOpen: true })
+
+    if (programNeedsInput(lang, node.content) && s.stdin.trim().length === 0 && !options?.allowEmptyInput) {
+      const prompts = inputPrompts(lang, node.content).map((prompt) => prompt.label)
+      set({
+        inputWizard: prompts.length ? { fileId: node.id, prompts, values: [], index: 0 } : null,
+        terminalOpen: true,
+        bottomPanelTab: 'terminal',
+        livePromptOpen: !prompts.length,
+      })
+      if (!prompts.length) {
+        appendTerminal({
+          kind: 'info',
+          text: 'This program expects input. Enter all values in Program input, one value per line, then press Run again.',
+        })
+        get().showToast('Enter the program input before running.', 'info')
+      }
+      return
+    }
+
+    if (get().liveSessionId) await get().stopLiveRun()
+    const wantsInput = usesInteractiveInput(node.content, lang)
+    set({
+      running: true, runningFileId: node.id, terminalOpen: true, bottomPanelTab: 'terminal',
+      livePromptOpen: wantsInput,
+    })
     appendTerminal({ kind: 'system', text: `Running ${node.name} (${languageName(lang)})…` })
+    if (wantsInput) {
+      appendTerminal({ kind: 'info', text: 'Program uses scanf/input. Type a value below and press Send (or put all answers in Input first).' })
+    }
     const start = Date.now()
     try {
       const settings = get().settings
@@ -747,35 +846,76 @@ export const useStore = create<StoreState>((set, get) => ({
 
       if (result.stdout.trim()) appendTerminal({ kind: 'stdout', text: result.stdout.trimEnd() })
       if (result.stderr.trim()) appendTerminal({ kind: 'stderr', text: result.stderr.trimEnd() })
-      if (result.compileOutput.trim()) appendTerminal({ kind: 'system', text: result.compileOutput.trimEnd() })
+      if (result.compileOutput.trim() && result.compileOutput !== result.stderr) {
+        appendTerminal({ kind: 'system', text: result.compileOutput.trimEnd() })
+      }
+
+      if (result.sessionId && !result.done) {
+        set({ liveSessionId: result.sessionId, running: true, livePromptOpen: true })
+        startLivePoll(result.sessionId, result.stdout.length, result.stderr.length)
+        appendTerminal({ kind: 'system', text: 'Waiting for input…', source })
+        return
+      }
 
       const elapsed = Date.now() - start
-      appendTerminal({ kind: 'system', text: `Execution time: ${(elapsed / 1000).toFixed(2)}s · memory: ${result.memoryKb}KB · status: ${result.status}`, source })
+      const fail = !result.success
+      appendTerminal({
+        kind: fail ? 'stderr' : 'system',
+        text: `${fail ? 'Failed' : 'Done'} · ${(elapsed / 1000).toFixed(2)}s · ${result.memoryKb}KB · ${result.status}`,
+        source,
+      })
       if (result.status === 'time_limit_exceeded') {
         get().showToast('Your code exceeded the time limit. Consider optimizing your solution.', 'error')
       }
 
-      // persist to history
       const hist: Omit<ExecutionResult, 'id'> = {
         fileId: node.id,
         projectId: get().activeProjectId || '',
         languageName: languageName(lang),
-        code: node.content,
+        code: node.content.slice(0, 20_000),
         stdout: result.stdout, stderr: result.stderr, compileOutput: result.compileOutput,
         status: result.status,
         timeMs: elapsed, memoryKb: result.memoryKb, timestamp: Date.now(),
       }
-      await historyDb.addExecutionResult(hist)
-      set({ running: false, runningFileId: null })
+      await historyDb.addExecutionResult(hist).catch(() => undefined)
     } catch (err) {
       const msg = (err as Error).message || 'Execution failed'
       appendTerminal({ kind: 'system', text: `Error: ${msg}` })
       get().showToast(msg, 'error')
-      set({ running: false, runningFileId: null })
+    } finally {
+      if (!get().liveSessionId) {
+        set({ running: false, runningFileId: null })
+      }
     }
   },
 
+  sendLiveInput: async (line) => {
+    const id = get().liveSessionId
+    if (!id) {
+      get().showToast('No program is waiting for input', 'info')
+      return
+    }
+    const text = line.endsWith('\n') ? line : line + '\n'
+    appendTerminal({ kind: 'system', text: `← ${line.replace(/\n$/, '')}` })
+    try {
+      await writeTermuxStdin(id, text)
+    } catch (err) {
+      get().showToast((err as Error).message || 'Could not send input', 'error')
+    }
+  },
+  stopLiveRun: async () => {
+    const id = get().liveSessionId
+    stopLivePoll()
+    if (id) await killTermuxSession(id)
+    set({ liveSessionId: null, running: false, runningFileId: null })
+    appendTerminal({ kind: 'system', text: 'Stopped.' })
+  },
   setStdin: (v) => set({ stdin: v }),
+  setInputPanelOpen: (v) => set({
+    livePromptOpen: v,
+    ...(v ? { terminalOpen: true, bottomPanelTab: 'terminal' as const } : {}),
+  }),
+  setInputWizard: (wizard) => set({ inputWizard: wizard }),
   setTerminalOpen: (v) => { set({ terminalOpen: v }); get().persistEditorState() },
   setTerminalHeight: (v) => { set({ terminalHeight: v }); get().persistEditorState() },
   clearTerminal: () => set({ terminalText: [] }),
@@ -820,9 +960,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   handleCallback: async () => {
     try {
-      const nextAuth = await authService.handleOAuthCallback()
-      if (nextAuth) {
-        set({ auth: nextAuth })
+      const auth = await authService.handleOAuthCallback()
+      if (auth) {
+        set({ auth })
         get().showToast('Connected to GitHub', 'success')
       }
     } catch (err) {
@@ -904,13 +1044,14 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid || !message.trim()) return
+    // Commit reads content from IndexedDB, so flush the debounced edits first.
     await get().flushDirtyTabs()
     try {
       const sha = await gitService.commitChanges(pid, { message: message.trim(), includeIds, push })
       await get().refreshProject()
       await get().refreshGitStatus()
       set({ commitOpen: false })
-      get().showToast(`Committed ${sha.slice(0, 7)}`, 'success')
+      get().showToast(`Committed & pushed ${sha.slice(0, 7)}`, 'success')
     } catch (err) {
       get().showToast((err as Error).message, 'error')
     }
@@ -996,6 +1137,8 @@ export const useStore = create<StoreState>((set, get) => ({
   closeDiff: () => set({ diffFileId: null }),
   discardFileChanges: async (fileId) => {
     await gitService.discardChanges(fileId)
+    // The file is back to its last-synced content — it is no longer dirty.
+    get().setDirty(fileId, false)
     await get().refreshProject()
     await get().refreshGitStatus()
     set({ diffFileId: null })
@@ -1005,6 +1148,8 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!requireOnline()) return
     const pid = get().activeProjectId
     if (!pid) return
+    // Pull compares local files against the remote, so flush edits first —
+    // otherwise a debounced save could be mistaken for a clean file.
     await get().flushDirtyTabs()
     set({ pulling: true })
     try {
@@ -1098,8 +1243,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   refreshTermuxStatus: async () => {
     clearBridgeCache()
-    const available = await checkTermuxBridge()
-    set({ termuxAvailable: available })
+    const available = await checkTermuxBridge(true)
+    set({ termuxAvailable: available, termuxError: available ? null : getBridgeError() })
   },
   openHome: (action) => {
     set({ homeAction: action ?? null })
@@ -1344,11 +1489,58 @@ export const useStore = create<StoreState>((set, get) => ({
     const pid = get().activeProjectId
     const proj = get().projects.find((p) => p.id === pid)
     if (!pid || !proj) { get().showToast('Open a project first', 'info'); return }
+    // The ZIP is built from IndexedDB, so flush debounced edits first.
+    await get().flushDirtyTabs()
     try {
       await downloadProjectZip(pid, proj.name)
       get().showToast('Project exported as ZIP', 'success')
     } catch (err) {
       get().showToast((err as Error).message || 'Export failed', 'error')
+    }
+  },
+  /** Download a single file, or a folder as a .zip of its subtree. */
+  downloadNode: async (id) => {
+    const node = get().nodeMap[id]
+    const pid = get().activeProjectId
+    if (!node || !pid) return
+    try {
+      const { saveAs } = await import('file-saver')
+      if (node.type === 'file') {
+        saveAs(storedContentToBlob(node.content, node.path), node.name)
+      } else {
+        const blob = await buildSubtreeZip(pid, node.path)
+        saveAs(blob, `${node.name}.zip`)
+      }
+      get().showToast(`Downloaded ${node.name}`, 'success')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Download failed', 'error')
+    }
+  },
+  /** Share a file (or a folder as .zip) via the native share sheet. */
+  shareNode: async (id) => {
+    const node = get().nodeMap[id]
+    const pid = get().activeProjectId
+    if (!node || !pid) return
+    try {
+      const toShare = async (): Promise<File> => {
+        if (node.type === 'file') {
+          return new File([storedContentToBlob(node.content, node.path)], node.name, { type: mimeForPath(node.path) })
+        }
+        const blob = await buildSubtreeZip(pid, node.path)
+        return new File([blob], `${node.name}.zip`, { type: 'application/zip' })
+      }
+      const file = await toShare()
+      const data = { title: node.name, files: [file] }
+      const canFileShare = !navigator.canShare || navigator.canShare(data)
+      if (navigator.share && canFileShare) {
+        await navigator.share(data).catch(() => {})
+        return
+      }
+      // fallback — copy path so the user can still grab it
+      try { navigator.clipboard?.writeText(node.path) } catch {}
+      get().showToast('Sharing not supported here — path copied', 'info')
+    } catch (err) {
+      get().showToast((err as Error).message || 'Share failed', 'error')
     }
   },
   importProjectFromEntries: async (entries, name) => {
@@ -1389,6 +1581,46 @@ function s_nodeMap(map: Record<string, FileNode>, id: string): FileNode | undefi
 function appendTerminal(line: Omit<TerminalLine, 'id'>) {
   useStore.setState((s) => ({ terminalText: [...s.terminalText, { ...line, id: uuid() }].slice(-200) }))
 }
+
+let liveTimer: ReturnType<typeof setInterval> | null = null
+function stopLivePoll() {
+  if (liveTimer) {
+    clearInterval(liveTimer)
+    liveTimer = null
+  }
+}
+function startLivePoll(sessionId: string, outLen: number, errLen: number) {
+  stopLivePoll()
+  let seenOut = outLen
+  let seenErr = errLen
+  liveTimer = setInterval(() => {
+    void (async () => {
+      const id = useStore.getState().liveSessionId
+      if (!id || id !== sessionId) {
+        stopLivePoll()
+        return
+      }
+      try {
+        const snap = await pollTermuxSession(id)
+        if (snap.stdout.length > seenOut) {
+          appendTerminal({ kind: 'stdout', text: snap.stdout.slice(seenOut) })
+          seenOut = snap.stdout.length
+        }
+        if (snap.stderr.length > seenErr) {
+          appendTerminal({ kind: 'stderr', text: snap.stderr.slice(seenErr) })
+          seenErr = snap.stderr.length
+        }
+        if (snap.done) {
+          stopLivePoll()
+          useStore.setState({ liveSessionId: null, running: false, runningFileId: null })
+          appendTerminal({ kind: 'system', text: snap.status === 'time_limit_exceeded' ? 'Session timed out' : `Done · ${snap.status}`, source: 'termux' })
+        }
+      } catch {
+        // keep polling until kill / timeout
+      }
+    })()
+  }, 350)
+}
 async function dbUpdateRoot(id: string, patch: Partial<FileNode>) {
   await db.files.update(id, patch)
 }
@@ -1422,6 +1654,22 @@ function orderTabs(openTabs: string[], pinnedTabs: string[]): string[] {
 function getRootNodeId(nodeMap: Record<string, FileNode>): string | null {
   const root = Object.values(nodeMap).find((n) => n.path === '/')
   return root ? root.id : null
+}
+
+/** The file Run will execute: the project's configured main file when set (and
+ *  it still exists), otherwise the active tab. Shared by the store and TopBar so
+ *  the button label always matches what actually runs. */
+export function runTargetNode(s: {
+  activeProjectId: string | null
+  activeTabId: string | null
+  nodeMap: Record<string, FileNode>
+  settings: AppSettings
+}): FileNode | undefined {
+  const configuredMain = s.activeProjectId ? s.settings.runConfiguration[s.activeProjectId] : undefined
+  const id = configuredMain && s.nodeMap[configuredMain]?.type === 'file' ? configuredMain : s.activeTabId
+  if (!id) return undefined
+  const node = s.nodeMap[id]
+  return node?.type === 'file' ? node : undefined
 }
 
 async function findChildByName(projectId: string, parentId: string | null, name: string, type: 'file' | 'folder'): Promise<string | null> {

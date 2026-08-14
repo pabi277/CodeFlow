@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, runTargetNode } from '../store/useStore'
 import { openFind } from '../utils/editorApi'
 import { IconButton } from './Shared/IconButton'
 import { BottomSheet } from './Shared/BottomSheet'
 import { HiMenu, HiDotsVertical } from 'react-icons/hi'
-import { FaPlay } from 'react-icons/fa'
+import { FaPlay, FaStop } from 'react-icons/fa'
 import { AiOutlineSetting, AiOutlineSearch, AiOutlinePlus, AiOutlineFolder, AiOutlineFileText, AiOutlineDownload, AiOutlineEye, AiOutlineExport } from 'react-icons/ai'
 import { VscClearAll, VscTerminal, VscHistory, VscCode, VscGitCommit, VscError } from 'react-icons/vsc'
 import { isHtmlPreview, isPreviewable } from '../utils/markdown'
@@ -12,7 +12,9 @@ import { isHtmlPreview, isPreviewable } from '../utils/markdown'
 export function TopBar() {
   const toggleDrawer = useStore((s) => s.toggleDrawer)
   const runCurrentFile = useStore((s) => s.runCurrentFile)
+  const stopLiveRun = useStore((s) => s.stopLiveRun)
   const running = useStore((s) => s.running)
+  const liveSessionId = useStore((s) => s.liveSessionId)
   const activeTabId = useStore((s) => s.activeTabId)
   const nodeMap = useStore((s) => s.nodeMap)
   const setCommandPalette = useStore((s) => s.setCommandPalette)
@@ -42,22 +44,36 @@ export function TopBar() {
   const canPreview = !!(activeFile && isPreviewable(activeFile.path))
   const canHtml = !!(activeFile && isHtmlPreview(activeFile.path))
 
+  // The file Run will actually execute (respects the project's main-file override).
+  const runLabel = useStore((s) => {
+    const node = runTargetNode(s)
+    if (!node) return 'Run'
+    const pid = s.activeProjectId
+    const main = pid ? s.settings.runConfiguration[pid] : undefined
+    if (main && s.nodeMap[main]?.type === 'file' && main !== s.activeTabId) return `Run ${node.name}`
+    return 'Run'
+  })
+
   return (
     <>
-      <div className="flex items-center gap-1 border-b border-border/60 bg-surface/95 px-2 py-1.5 shadow-lift dark:bg-panel">
+      <div className="bar-glass bar-hairline flex items-center gap-1 border-b border-border/60 px-2 py-1.5">
         <IconButton label="Menu" onClick={() => toggleDrawer()}>
           <HiMenu size={22} />
         </IconButton>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-2 text-left active:bg-black/5 dark:active:bg-white/5"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors active:bg-black/5 dark:active:bg-white/5"
           onClick={() => setCommandPalette(true)}
           onDoubleClick={() => setCommandPalette(true)}
           aria-label="Open command palette"
         >
           <span className="truncate text-[15px] font-semibold text-ink">{activeFile ? activeFile.name : 'No file open'}</span>
           {activeFile && (
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${dirty ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
-              {dirty ? 'unsaved' : 'saved'}
+            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+              dirty
+                ? 'border-amber-500/30 bg-amber-500/15 text-amber-400'
+                : 'border-emerald-500/30 bg-emerald-500/15 text-emerald-400'
+            }`}>
+              {dirty ? '● unsaved' : '✓ saved'}
             </span>
           )}
         </button>
@@ -66,14 +82,25 @@ export function TopBar() {
             <AiOutlineEye size={20} className={previewMode !== 'editor' ? 'text-accent' : undefined} />
           </IconButton>
         )}
-        <button
-          onClick={() => runCurrentFile()}
-          aria-label="Run code"
-          className="flex h-11 items-center gap-2 rounded-lg bg-[#2ea043] px-4 font-semibold text-white transition-all duration-150 hover:bg-[#2c974b] active:scale-[0.98] active:opacity-90"
-        >
-          {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
-          <span className="text-[13px]">Run</span>
-        </button>
+        {liveSessionId ? (
+          <button
+            onClick={() => void stopLiveRun()}
+            aria-label="Stop program"
+            className="flex h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-red-500 to-red-700 px-4 font-semibold text-white shadow-[0_4px_16px_-2px_rgba(239,68,68,0.6),inset_0_1px_0_rgba(255,255,255,0.25)] transition-transform duration-150 active:scale-95"
+          >
+            <FaStop size={12} />
+            <span className="text-[13px]">Stop</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => runCurrentFile()}
+            aria-label="Run code"
+            className="btn-run flex h-11 items-center gap-2 rounded-xl px-4 font-semibold text-white"
+          >
+            {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
+            <span className="text-[13px]">{runLabel}</span>
+          </button>
+        )}
         <IconButton label="More" onClick={() => setMenuOpen(true)}>
           <HiDotsVertical size={22} />
         </IconButton>

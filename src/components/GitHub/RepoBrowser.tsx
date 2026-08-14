@@ -67,6 +67,7 @@ export function RepoBrowser() {
                     <div className="flex items-center gap-2 text-[11px] text-ink-muted">
                       {r.language && <span className="rounded bg-white/10 px-1.5 py-0.5">{r.language}</span>}
                       {r.private ? <span className="text-amber-400">private</span> : <span>public</span>}
+                      {r.size === 0 && <span className="rounded bg-white/10 px-1.5 py-0.5 text-emerald-300">empty</span>}
                       <span className="flex items-center gap-0.5"><AiFillStar /> {r.stargazers_count}</span>
                     </div>
                   </div>

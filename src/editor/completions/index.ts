@@ -1,5 +1,5 @@
 import { CompletionContext, type Completion, type CompletionResult } from '@codemirror/autocomplete'
-import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS } from './keywords'
+import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS, C_MEMBERS } from './keywords'
 import { TEMPLATE_COMPLETIONS_BY_LANG, symbolPairCompletion } from './keywordCompletions'
 import { extractLocalSymbols, localSymbolsToEntries } from './localSymbols'
 import { getProjectIndex } from './projectIndex'
@@ -37,7 +37,11 @@ const TYPE_GLYPH: Record<string, string> = {
 export function getCompletionSourceForLanguage(language: string) {
   const templates = TEMPLATE_COMPLETIONS_BY_LANG[language] || []
   const plainKeywords = keywordsFor(language)
-  const memberSet = ['javascript', 'typescript'].includes(language) ? JS_OBJECT_MEMBERS : []
+  const memberSet = ['javascript', 'typescript'].includes(language)
+    ? JS_OBJECT_MEMBERS
+    : language === 'c' || language === 'cpp'
+      ? C_MEMBERS
+      : []
 
   return (context: CompletionContext): CompletionResult | null => {
     // Symbol pair suggestions (type "(" → suggest "()")
@@ -66,10 +70,18 @@ export function getCompletionSourceForLanguage(language: string) {
     if (word.from === word.to && !context.explicit) return null
 
     const before = context.state.sliceDoc(Math.max(0, word.from - 1), word.from)
+    const arrow = context.state.sliceDoc(Math.max(0, word.from - 2), word.from) === '->'
 
     let options: Completion[]
-    if (before === '.') {
-      options = memberSet.map((e) => ({ label: e.label, type: e.type, detail: e.detail, boost: 1.1 }))
+    if (before === '.' || arrow) {
+      const locals = language === 'c'
+        ? localSymbolsToEntries(extractLocalSymbols(context.state.doc.toString(), language))
+          .filter((e) => e.type === 'variable' || e.type === 'type')
+        : []
+      options = [
+        ...locals.map((e) => ({ label: e.label, type: e.type, boost: 1.2 })),
+        ...memberSet.map((e) => ({ label: e.label, type: e.type, detail: e.detail, boost: 1.1 })),
+      ]
     } else {
       const code = context.state.doc.toString()
       const locals = localSymbolsToEntries(extractLocalSymbols(code, language))

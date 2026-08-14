@@ -59,6 +59,14 @@ function main() {
   ok(collectDrafts('const s = `a ${b} (${c})`;', '/a.js').length === 0, 'ignores braces inside template literals')
   ok(collectDrafts('def greet(name: str) -> str:\n    return f"Hello, {name}!"\n', '/util.py').length === 0, 'python f-string and type hints are clean')
 
+  console.log('\n[c language]')
+  const cOk = collectDrafts('#include <stdio.h>\nint main(void) {\n  printf(\"hi\\n\");\n  return 0;\n}\n', '/main.c')
+  ok(cOk.length === 0, `valid C is clean (got ${cOk.map((d) => d.message).join('; ')})`)
+  ok(collectDrafts('int x = 1\n', '/a.c').some((d) => d.source === 'c-semicolon'), 'C missing semicolon')
+  ok(collectDrafts('#ifdef FOO\nint x;\n', '/a.c').some((d) => d.message.includes('#if')), 'C unclosed #ifdef')
+  ok(collectDrafts('#include stdio.h\n', '/a.c').some((d) => d.message.includes('#include')), 'C bad #include')
+  ok(collectDrafts('char ch = \'(\';\nint xs[] = {1, 2};\n', '/lit.c').every((d) => d.source !== 'brackets'), 'C char literals and arrays are not bracket errors')
+
   console.log('\n[no false positives on markup]')
   ok(collectDrafts('<p>It\'s fine (really)</p>\n<script src="app.js"></script>\n', '/i.html').every((d) => d.source !== 'brackets'), 'HTML is not bracket-scanned')
   ok(collectDrafts('See [docs](https://x.com) and a list [1, 2].', '/n.md').every((d) => d.source !== 'brackets'), 'Markdown links are not bracket errors')

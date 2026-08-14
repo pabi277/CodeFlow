@@ -1,4 +1,5 @@
 // Language keyword / builtin / common-API completion lists.
+import { C_KEYWORDS as C_KW, C_TYPES, C_PREPROCESSOR, C_STDLIB } from '../cLanguage'
 
 export interface CompletionEntry {
   label: string
@@ -72,17 +73,38 @@ export const JS_OBJECT_MEMBERS: CompletionEntry[] = [
 ]
 
 export const C_KEYWORDS: CompletionEntry[] = [
-  'int', 'float', 'double', 'char', 'void', 'long', 'short', 'unsigned', 'signed', 'if', 'else',
-  'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'return', 'struct',
-  'typedef', 'enum', 'union', 'sizeof', 'const', 'static', 'extern', 'auto', 'register',
-  'volatile', 'goto', 'include', 'define', 'ifdef', 'ifndef', 'endif',
-].map((k) => ({ label: k, type: 'keyword' } as CompletionEntry))
+  ...C_KW.map((k) => ({ label: k, type: 'keyword' as const })),
+  ...C_TYPES.map((t) => ({ label: t, type: 'type' as const, detail: 'C type' })),
+  ...C_PREPROCESSOR.map((p) => ({ label: p, type: 'keyword' as const, detail: 'preprocessor' })),
+]
 
-export const C_FUNCTIONS: CompletionEntry[] = [
-  'printf', 'scanf', 'malloc', 'free', 'memcpy', 'memset', 'strlen', 'strcpy', 'strcmp',
-  'strcat', 'strncpy', 'fopen', 'fclose', 'fread', 'fwrite', 'fprintf', 'fscanf', 'exit',
-  'abs', 'pow', 'sqrt', 'rand', 'srand', 'getchar', 'putchar', 'puts',
-].map((f) => ({ label: f, type: 'function' } as CompletionEntry))
+export const C_FUNCTIONS: CompletionEntry[] = C_STDLIB.map((f) => ({
+  label: f.label,
+  type: f.label === f.label.toUpperCase() ? 'constant' : 'function',
+  detail: f.header,
+} as CompletionEntry))
+
+/** Completions after `.` or `->` in C (common libc / struct fields). */
+export const C_MEMBERS: CompletionEntry[] = [
+  { label: 'next', type: 'member' },
+  { label: 'prev', type: 'member' },
+  { label: 'data', type: 'member' },
+  { label: 'value', type: 'member' },
+  { label: 'name', type: 'member' },
+  { label: 'size', type: 'member' },
+  { label: 'len', type: 'member' },
+  { label: 'count', type: 'member' },
+  { label: 'capacity', type: 'member' },
+  { label: 'flags', type: 'member' },
+  { label: 'type', type: 'member' },
+  { label: 'id', type: 'member' },
+  { label: 'x', type: 'member' },
+  { label: 'y', type: 'member' },
+  { label: 'key', type: 'member' },
+  { label: 'left', type: 'member' },
+  { label: 'right', type: 'member' },
+  { label: 'parent', type: 'member' },
+]
 
 export const CPP_EXTRA: CompletionEntry[] = [
   'cout', 'cin', 'endl', 'string', 'vector', 'map', 'set', 'pair', 'auto', 'namespace', 'template',

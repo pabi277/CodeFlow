@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { EditorState, Compartment, EditorSelection } from '@codemirror/state'
+import { EditorState, Compartment, EditorSelection, Transaction } from '@codemirror/state'
 import {
   EditorView,
   keymap,
@@ -16,8 +16,9 @@ import { indentGuides } from '../../editor/indentGuides'
 import { rainbowBrackets } from '../../editor/rainbowBrackets'
 import { linkedEditing } from '../../editor/linkedEditing'
 import { formatOnPaste } from '../../editor/pasteIndent'
+import { cIndent } from '../../editor/cIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
 import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
@@ -57,6 +58,7 @@ export function Editor() {
   const rainbowComp = useRef(new Compartment())
   const linkedComp = useRef(new Compartment())
   const pasteComp = useRef(new Compartment())
+  const cIndentComp = useRef(new Compartment())
   const drawSelComp = useRef(new Compartment())
 
   const activeTabId = useStore((s) => s.activeTabId)
@@ -163,18 +165,21 @@ export function Editor() {
             {
               key: 'Tab',
               run: (v) => {
+                if (acceptCompletion(v)) return true
                 const path = activeTabRef.current ? useStore.getState().nodeMap[activeTabRef.current]?.path : ''
                 const lang = path ? detectLanguage(path) : 'plain'
                 if (['html', 'css', 'scss', 'less', 'xml', 'vue'].includes(lang) && expandEmmetInEditor(v, lang)) return true
                 return indentWithTab.run?.(v) ?? false
               },
             },
+            // Enter must insert a newline — never accept if/for snippets (that
+            // used to expand a block and felt like a new tab after every Enter).
             { key: 'F12', run: () => { void useStore.getState().goToDefinition(); return true } },
             { key: 'Shift-F12', run: () => { void useStore.getState().findReferences(); return true } },
             { key: 'F2', run: () => { useStore.getState().openRename(); return true } },
             ...closeBracketsKeymap,
             ...defaultKeymap,
-            ...completionKeymap,
+            ...completionKeymap.filter((b) => b.key !== 'Enter'),
             ...searchKeymap,
             ...historyKeymap,
             ...foldKeymap,
@@ -184,10 +189,11 @@ export function Editor() {
           completionComp.current.of(
             autocompletion({
               override: [getCompletionSourceForLanguage('plain')],
-              defaultKeymap: true,
+              defaultKeymap: false,
               activateOnTyping: true,
-              maxRenderedOptions: 50,
+              maxRenderedOptions: 8,
               closeOnBlur: true,
+              aboveCursor: true,
             }),
           ),
           langComp.current.of([]),
@@ -202,6 +208,7 @@ export function Editor() {
           rainbowComp.current.of([]),
           linkedComp.current.of([]),
           pasteComp.current.of([]),
+          cIndentComp.current.of([]),
           lintComp.current.of([lintGutter(), lintSource]),
           updateListener,
         ],
@@ -247,6 +254,9 @@ export function Editor() {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
         ...(keepSelection ? {} : { selection: EditorSelection.cursor(0), scrollIntoView: true }),
+        // Tab switches and other programmatic loads must never become an undo
+        // step, otherwise Undo would re-insert the previous file's content.
+        annotations: Transaction.addToHistory.of(false),
       })
     }
     if (pending && pending.fileId === activeTabId) {
@@ -280,10 +290,11 @@ export function Editor() {
         effects: completionComp.current.reconfigure(
           autocompletion({
             override: [getCompletionSourceForLanguage(lang)],
-            defaultKeymap: true,
+            defaultKeymap: false,
             activateOnTyping: true,
-            maxRenderedOptions: 50,
+            maxRenderedOptions: 8,
             closeOnBlur: true,
+            aboveCursor: true,
           }),
         ),
       })
@@ -345,6 +356,7 @@ export function Editor() {
     const lang = activePath ? detectLanguage(activePath) : 'plain'
     view.dispatch({ effects: linkedComp.current.reconfigure(['html', 'xml', 'vue'].includes(lang) ? linkedEditing() : []) })
     view.dispatch({ effects: pasteComp.current.reconfigure(settings.formatOnPaste ? formatOnPaste() : []) })
+    view.dispatch({ effects: cIndentComp.current.reconfigure(['c', 'cpp'].includes(lang) ? cIndent() : []) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     settings.themePreset, settings.customThemes, settings.showLineNumbers, settings.wordWrap, settings.fontSize,

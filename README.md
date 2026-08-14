@@ -1,256 +1,263 @@
-# CodeFlow
+<p align="center">
+  <img src="docs/banner.png" alt="CodeFlow — Free, Open Source, Mobile IDE" width="100%" />
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
+<p align="center">
+  <b>A free, open-source, mobile-first code editor.</b>
+  <br /><br />
+  Write Python, JavaScript, HTML and more — right from your phone.
+  <br />
+  Run code, preview the web, push to GitHub. Works offline.
+</p>
 
-**A free, open-source, mobile-first code editor.** Install it from the browser — no app store.
+<p align="center">
+  <a href="https://code-flow-gamma-liard.vercel.app">🌐 Try it now</a> •
+  <a href="#features">✨ Features</a> •
+  <a href="#screenshots">📱 Screenshots</a> •
+  <a href="#getting-started">🚀 Get started</a> •
+  <a href="CONTRIBUTING.md">🤝 Contribute</a>
+</p>
 
-Write Python, JavaScript, HTML and more on your phone. Run code, preview the web, and push to GitHub. Works offline.
-
-- **Edit** — CodeMirror 6, tabs, file tree, find, snippets, themes
-- **Run** — JS in the browser; Python and more via Termux or Judge0
-- **Preview** — live HTML/CSS/JS, optional new tab, Termux live server
-- **Ship** — clone, commit, push, pull, diffs, branches
-
-New here? Open the app, tap **How does it work?**, then **New project (with sample files)**.
-
-Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Licensed under [MIT](./LICENSE).
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="Pull requests welcome" /></a>
+  <a href="https://code-flow-gamma-liard.vercel.app"><img src="https://img.shields.io/badge/Platform-Web%20%7C%20PWA-orange" alt="Web and PWA" /></a>
+</p>
 
 ---
 
-Built to make a developer feel like they have a real IDE in their pocket: a responsive editor, a touch-optimized keyboard toolbar, cloud code execution, offline editing, and GitHub integration.
+## 📱 Screenshots
+
+<p align="center">
+  <img src="docs/screenshot-editor.png" alt="CodeFlow editor, terminal, and mobile keyboard toolbar" width="30%" />
+  <img src="docs/screenshot-git.png" alt="CodeFlow GitHub source control panel" width="30%" />
+  <img src="docs/screenshot-preview.png" alt="CodeFlow HTML editor and live preview split view" width="30%" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-themes.png" alt="Default Dark, Dracula, Monokai, and GitHub Light themes" width="90%" />
+</p>
+
+## ✨ Features
+
+### ✏️ Editor
+
+- CodeMirror 6 with 20+ languages
+- Multi-cursor, Emmet, and rainbow brackets
+- 7 theme presets — or import your own
+- Minimap, sticky scroll, and indent guides
+
+### ▶️ Run Code
+
+- JavaScript runs instantly in the browser
+- Python, C, Java, Go, and more via Termux — free and offline
+- Judge0 cloud execution with your own API key
+- Interactive `stdin` / `input()` support
+
+### 🌐 Live Preview
+
+- HTML/CSS/JS preview with split view
+- CSS, JavaScript, and images load from your project
+- Termux live server for full-fidelity previews
+
+### 🔀 GitHub
+
+- Sign in with OAuth or a personal access token
+- Clone, commit, push, and pull
+- Folder and file renames, moves, and deletes land on GitHub
+- Branch switching, diff viewer, and conflict resolver
+- Upload local projects to a new or empty repo
+- Git history and pull request viewer
+
+### 📱 Mobile First
+
+- Touch-optimized keyboard toolbar
+- File explorer with a `⋮` menu on every item
+- Installable PWA that keeps working offline
+- Zen mode for distraction-free coding
+
+### 🧰 IDE Essentials
+
+- Project-wide search and replace
+- Problems panel, outline, breadcrumbs, and status bar
+- Snippets, format-on-save, and workspace symbols
+- Pinned tabs, run configurations, and execution history
+
+> **No app store. No subscription. No laptop required.** Open CodeFlow in your browser and start building.
 
 ---
 
-## ✨ What's implemented (Phase 1 — MVP)
+<details id="architecture">
+<summary><strong>🧱 Architecture</strong></summary>
 
-| Area | Status |
-| --- | --- |
-| Project scaffold (Vite + React + TS + Tailwind) | ✅ |
-| **IndexedDB data layer** (Dexie) — files, projects, settings, editor state, execution history, GitHub auth stores | ✅ |
-| **UI shell** — top bar, tab bar, editor area, left drawer | ✅ |
-| **CodeMirror 6 editor** with lazy-loaded syntax highlighting (Python, JS, TS, C/C++, Java, HTML, CSS, JSON, Markdown, Go, Rust, PHP, SQL, XML, YAML, Vue, etc.) | ✅ |
-| **File explorer** — tree view, search, create/rename/delete/duplicate, long-press context menu | ✅ |
-| **Tab system** — open files, active tab, dirty indicator, close with confirm | ✅ |
-| **Keyboard toolbar** — language-aware shortcut keys, arrow keys for cursor movement | ✅ |
-| **Code execution** — Judge0 (RapidAPI) with **local JS runner + mock fallback** when no API key | ✅ |
-| **Terminal panel** — draggable resize, color-coded stdout/stderr/system, stdin input, run history | ✅ |
-| **Command palette** — fuzzy search over commands & files | ✅ |
-| **Settings** — editor, appearance (theme presets), auto-save, keyboard toolbar, execution, storage | ✅ |
-| **PWA** — web app manifest, Workbox service worker, offline app-shell caching, install banner | ✅ |
-| Zustand store with slices (files/editor/execution/github/ui/settings) | ✅ |
-| **GitHub OAuth** — full flow with backend-proxy token exchange (Cloudflare Worker included) | ✅ |
-| **Repository browser** — searchable repo list, clone with live progress | ✅ |
-| **Clone repository** — fetches tree, creates folders/files, batches blob fetches (10 at a time) | ✅ |
-| **Modified-file tracking** — modified/new/deleted indicators, Git tab change list | ✅ |
-| **Commit & Push** — staging checkboxes, commit message, blob→tree→commit→ref flow | ✅ |
-| **Pull** — creates/updates remote files, flags conflicts without auto-resolving | ✅ |
-| **Diff viewer** — unified diff, revert (discard) per file | ✅ |
-| **Branch switching** — list branches and switch | ✅ |
+<br />
 
-**Phase 3 — polish & enhancement**
+CodeFlow is a Vite + React + TypeScript PWA. The editor is powered by CodeMirror 6, app data is stored with Dexie in IndexedDB, and Zustand coordinates application state.
 
-| Area | Status |
-| --- | --- |
-| **Find & Replace in file** — CodeMirror search panel (via menu & command palette) | ✅ |
-| **Find in Project** — full-text search across all files with match-case toggle | ✅ |
-| **Theme presets** — 7 full palettes (Default Dark, Dracula, Monokai, Ayu Mirage, Tokyo Night, GitHub Dark/Light) applied to the **app shell and the editor** | ✅ |
-| **Settings expansion** — font family, cursor style, spaces-vs-tabs, per-language keyboard-toolbar editor, GitHub rate-limit status | ✅ |
-| **Auto-save indicator** — "saved/unsaved" status in the top bar | ✅ |
-| **Accessibility** — focus-visible outlines, reduced-motion support, touch-action, ARIA labels | ✅ |
-| **Performance pass** — removed ineffective dynamic imports, lazy language chunks | ✅ |
-
-**Phase 4 — differentiating features**
-
-| Area | Status |
-| --- | --- |
-| **Run configurations** — set any file as the "main" file to run; ▶ runs it | ✅ |
-| **Execution history browser** — full-screen log of past runs with one-tap **Rerun** | ✅ |
-| **Snippet library** — save/edit/delete snippets with `${cursor}` placeholder, per-language filtering, insert into editor | ✅ |
-| **Git history viewer** — read-only commit log for the connected repo | ✅ |
-| **Pull requests viewer** — read-only list of open PRs | ✅ |
-| **Landscape split editor** — file list sidebar beside the editor when in landscape | ✅ |
-| **Plugin architecture** — plugin registry + enable/disable toggles; built-ins: history, snippets, git log, PRs | ✅ |
-| **Command palette** — plugin commands surfaced automatically | ✅ |
-
-**Phase 5 — IDE chrome**
-
-| Area | Status |
-| --- | --- |
-| **Code minimap** — canvas overview of the file, click/drag to scroll (Settings toggle) | ✅ |
-| **Markdown / HTML preview** — dedicated viewer with refresh + optional new tab; Termux v2 serves the project as a live server so CSS/JS/images load for real | ✅ |
-| **Multi-file run** — Termux receives the whole project, so Python/Node imports resolve | ✅ |
-| **Breadcrumbs** — tap a folder to reveal it in the explorer | ✅ |
-| **Problems panel** — JSON, brackets, markdown fences, HTML/YAML checks with jump-to-line | ✅ |
-| **Outline** — functions/classes/variables for the active file | ✅ |
-| **Status bar** — line/col, language, indent, error/warning counts | ✅ |
-| **Go to Line** — command palette + Ctrl/Cmd+G | ✅ |
-| **Format Document** — Prettier for JS/TS/HTML/CSS/Markdown; JSON pretty-print | ✅ |
-| **Multi-cursor** — Ctrl/Cmd+D, Alt+click, toolbar Next | ✅ |
-| **Emmet** — Tab expands HTML/CSS abbreviations | ✅ |
-| **Find & replace in project** — regex, whole word, replace all | ✅ |
-| **Keyboard shortcuts** — palette, find, go-to-line, drawer, terminal, format | ✅ |
-
-**Phase 6 — VS Code-style editor**
-
-| Area | Status |
-| --- | --- |
-| **Column / box selection** — Shift+Alt+drag | ✅ |
-| **Indent guides + rainbow brackets + sticky scroll** | ✅ |
-| **Smart selection** — Ctrl/Cmd+I expands to the parent syntax node | ✅ |
-| **Smooth cursor** — setting now actually applied | ✅ |
-| **Linked HTML tag rename** — edit an opening tag, the closer follows | ✅ |
-| **Format on save / paste** + **auto-detect indent** | ✅ |
-| **Go to definition / references / rename** — F12, Shift+F12, F2 | ✅ |
-| **Import path completion** — `from './` lists project files | ✅ |
-| **Workspace symbol search** — Ctrl/Cmd+T | ✅ |
-| **Pinned tabs, tab context menu, drag-to-reorder, scroll buttons** | ✅ |
-| **Zen mode** — Ctrl+K Z | ✅ |
-| **Create / delete Git branches** + **conflict resolver** + **side-by-side diff** | ✅ |
-| **ANSI colors + clickable paths** in the terminal | ✅ |
-| **Import a VS Code theme JSON** | ✅ |
-| **Async JS sandbox** — top-level await + timers | ✅ |
-| **Move files**, persist cursor/scroll, LF/CRLF toggle | ✅ |
-| **Snippet tab-stops**, HTML auto-close tags, image preview | ✅ |
-| **Configurable Termux URL**, offline Git guards, `.editorconfig` | ✅ |
-
-## 🧱 Architecture
-
-```
+```text
 src/
-├── components/        React UI, organized by feature
-│   ├── FileExplorer/  tree view, search, create modal, context menu
-│   ├── Editor/        CodeMirror wrapper
-│   ├── Terminal/      output panel, stdin, history
-│   ├── Shared/        buttons, modals, toasts, bottom sheets, context menu
-│   ├── Drawer.tsx     left drawer (Files / Git tabs)
-│   ├── TopBar.tsx, TabBar.tsx, KeyboardToolbar.tsx, CommandPalette.tsx, Settings.tsx, Home.tsx
-├── services/          judge0Service, githubService, authService, mockRunner
-├── db/                Dexie schema + CRUD (files, projects, settings, editorState, history, github)
-├── store/             Zustand store (single global store, organized in slices)
-├── hooks/             usePWA
-├── editor/            lazy language loaders, CodeMirror themes
-├── config/            judge0 languages, defaults, api endpoints
-├── types/             all TypeScript definitions
-└── utils/             language detection, path, formatting, debounce, error parsing
+├── components/          Feature-focused React UI
+│   ├── Editor/          CodeMirror integration
+│   ├── FileExplorer/    Project tree and file actions
+│   ├── GitHub/          Repositories and source control
+│   ├── Terminal/        Output, stdin, and run history
+│   └── Shared/          Reusable controls and modals
+├── config/              Defaults, labels, and API settings
+├── db/                  Dexie schema and persistence
+├── editor/              Languages, themes, and editor extensions
+├── hooks/               PWA and application hooks
+├── plugins/             Plugin registry and built-ins
+├── services/            Execution, GitHub, Judge0, and Termux
+├── store/               Zustand application store
+├── types/               Shared TypeScript types
+└── utils/               Preview, formatting, search, and helpers
 ```
 
-## 🗄️ Data model (IndexedDB — `CodeFlowDB`)
+The included Cloudflare Worker in [`worker/`](worker/) performs the GitHub OAuth code-to-token exchange without exposing a client secret to the browser.
 
-- **files** — unified file/folder records (id, name, type, path, content, parentId, childIds, timestamps, git flags, projectId)
-- **projects** — project records with root folder ref + GitHub metadata
-- **settings** — single key-value settings row
-- **editorState** — open tabs, active tab, terminal state
-- **executionHistory** — past run results
-- **gitHubAuth** — OAuth token storage
-- **snippets** — user-defined code snippets (name, description, language, body)
+</details>
 
-## ▶️ Running code
+<details id="data-model">
+<summary><strong>🗄️ Data Model</strong></summary>
 
-- **JavaScript / TypeScript** run **locally** in a sandboxed `Function` capturing `console` — no API key needed.
-- **Other languages** require a **Judge0 CE API key** (RapidAPI). Paste it in **Settings → Execution**. Without a key, those languages show a friendly mock so the flow still works.
-- Stdin is provided via the **Input** toggle in the terminal panel.
+<br />
 
-## 🚀 Getting started
+CodeFlow stores projects locally in IndexedDB (`CodeFlowDB`), so editing remains fast and available offline.
+
+- **files** — files and folders, content, paths, timestamps, and Git status
+- **projects** — root folders and optional GitHub repository metadata
+- **settings** — editor, appearance, execution, and integration preferences
+- **editorState** — open tabs, active file, cursor position, and terminal state
+- **executionHistory** — previous runs and their output
+- **gitHubAuth** — OAuth connection data
+- **snippets** — reusable, language-aware code snippets
+
+</details>
+
+<details id="running-code">
+<summary><strong>▶️ Running Code</strong></summary>
+
+<br />
+
+CodeFlow picks the best available runner automatically:
+
+1. **JavaScript** — runs locally in an isolated browser sandbox with captured console output.
+2. **Termux** — runs Python, TypeScript, C/C++, Java, Go, Rust, Node, Bash, and more on Android.
+3. **Judge0** — optional cloud execution when an API key is configured.
+4. **Setup guidance** — if no real runner is available, CodeFlow explains how to connect one instead of fabricating output.
+
+Enable **Input** in the terminal panel to pass `stdin` to programs. Termux execution supports whole projects, so local imports work as expected.
+
+</details>
+
+<details id="getting-started">
+<summary><strong>🚀 Getting Started</strong></summary>
+
+<br />
+
+### Use the hosted app
+
+Open **[code-flow-gamma-liard.vercel.app](https://code-flow-gamma-liard.vercel.app)**. On mobile, choose **Add to Home Screen** or **Install app** to use CodeFlow like a native PWA.
+
+New here? Tap **How does it work?**, then choose **New project (with sample files)**.
+
+### Run locally
+
+Requires a current Node.js release and npm.
 
 ```bash
+git clone https://github.com/pabi277/CodeFlow.git
+cd CodeFlow
 npm install
-npm run dev      # start the dev server (Vite)
-npm run build    # production build + PWA service worker
-npm run preview  # preview the production build
-npm run test     # run the full test suite
+npm run dev
 ```
 
-> 💡 Open the dev server on your Android phone (or use the live preview) and **Add to Home Screen** to install it as a PWA.
-
-## 🔐 Connecting GitHub
-
-Two ways to sign in — both store the token in **IndexedDB** on this device only.
-
-**Personal access token (works everywhere, no deploy needed)**
-
-1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` scope.
-2. Open the **Git** tab and paste it.
-
-**OAuth (one-tap sign-in)**
-
-The client secret never ships in frontend code. The app exchanges the OAuth
-`code` via `/api/exchange` (Vercel function in [`/api`](./api), or the
-Cloudflare Worker in [`/worker`](./worker)).
-
-1. Register a GitHub **OAuth App** (Settings → Developer settings → OAuth Apps).
-   Set the callback URL to `https://your-app.example.com/auth/callback`.
-2. Set `VITE_GITHUB_CLIENT_ID` (frontend) plus `GITHUB_CLIENT_ID` and
-   `GITHUB_CLIENT_SECRET` (server).
-3. On Vercel the `/api/exchange` function is used automatically. Locally,
-   Vite serves the same route when those env vars are present.
-
-Folder and file **renames / moves / deletes** are recorded as git changes and
-land on GitHub on the next **Commit & Push**. You can also **Upload to GitHub**
-to create a new repo (or fill an empty one) from a local project.
-
-## 🖥️ Termux Integration
-
-Run code **locally on your Android device** for free, unlimited, offline execution.
-The `termux-bridge.js` server (in `/public`) runs inside Termux on `localhost:8080`, and CodeFlow
-executes code there for any installed language (Python, C/C++, Java, Bash, Node...).
-
-**Priority chain** (best → fallback):
-1. JavaScript / TypeScript → runs **in the browser** (always)
-2. Other languages → **Termux bridge** (if running)
-3. → **Judge0** (if API key configured)
-4. → **mock output** (always works)
-
-The bridge (`public/termux-bridge.js` / `.cjs`) runs **real** code locally with a 10s timeout,
-stdin piping, temp-file cleanup, and startup checks. Supported languages: Python, JavaScript,
-TypeScript, C, C++, Java, Bash, Ruby, PHP, Go, Rust, Kotlin, Perl, Lua. It reports
-`source: "termux"` so the terminal shows the green **"Ran in Termux"** badge.
-
-Setup is ~5 minutes — see **[docs/termux-setup.md](docs/termux-setup.md)** or use the in-app
-guide under **Settings → Execution → Termux Integration** (with a *Copy Bridge Script* button).
-The terminal shows a color-coded badge for the execution source: local / Termux / Judge0 / mock.
-
-## ✍️ Plugins
-
-CodeFlow has a lightweight plugin system (`src/plugins/registry.ts`). A plugin
-registers a name, optional description, optional command-palette entries, and an
-optional React panel. Enable/disable them anytime in **Settings → Plugins**.
-Built-in plugins: Execution History, Snippet Library, Git History, Pull Requests.
-To add your own, call `registerPlugin({...})` and import it in `initBuiltinPlugins()`.
-
-## 🧪 Tests
+Useful commands:
 
 ```bash
-npm run test:git         # clone / status / commit / pull (fake GitHub + IndexedDB)
-npm run test:snippets    # snippet store CRUD + persistence
-npm run test:completions # autocomplete templates, local symbols, cursor placement
-npm run test:execution   # execution priority chain (local/mock fallback)
-npm run test:zip         # project ZIP export/import round-trip
-npm run test:bridge      # Termux bridge real execution (python/C, stdin, health)
-npm run test:smoke       # mount all screens + App boot transition (React #310 guard)
-npm run test:diagnostics # problems engine (JSON, brackets, markdown, YAML)
-npm run test:markdown    # preview renderer + XSS URL guards
-npm run test:format      # JSON pretty-print + whitespace cleanup
-npm run test:html-preview # HTML preview inlines local CSS/JS/@import
-npm run test:ide         # indent, ANSI, symbols, imports, theme import
-npm run test             # run all suites
+npm run build     # production build + service worker
+npm run preview   # preview the production build
+npm run lint      # lint the project
+npm run test      # run the full test suite
 ```
 
+### Configure GitHub OAuth
 
-## 🔐 Security notes
+The GitHub client secret must never ship in frontend code. Deploy the worker in [`worker/`](worker/) and add its secrets:
 
-- GitHub client secret never ships in frontend code — the Phase 2 token exchange requires a small backend proxy (Cloudflare Worker / Vercel function).
-- GitHub tokens are stored in **IndexedDB**, never localStorage/cookies/URL.
-- All API calls use HTTPS; user code runs only in Judge0's sandbox.
+```bash
+cd worker
+wrangler deploy
+wrangler secret put GITHUB_CLIENT_ID
+wrangler secret put GITHUB_CLIENT_SECRET
+```
+
+Then configure the client ID and token proxy URL in [`src/services/authService.ts`](src/services/authService.ts), rebuild, and use **Connect GitHub** in the Git panel.
+
+</details>
+
+<details id="termux">
+<summary><strong>🖥️ Termux Integration</strong></summary>
+
+<br />
+
+Termux turns your Android device into a free, unlimited, offline code runner. The bridge in [`public/termux-bridge.js`](public/termux-bridge.js) runs on your device and connects CodeFlow to installed compilers and interpreters.
+
+Supported languages include Python, JavaScript, TypeScript, C, C++, Java, Bash, Ruby, PHP, Go, Rust, Kotlin, Perl, and Lua. Runs use a timeout, pipe `stdin`, clean up temporary files, and display the green **Ran in Termux** badge.
+
+Follow the **[5-minute Termux setup guide](docs/termux-setup.md)** or open **Settings → Execution → Termux Integration** inside CodeFlow.
+
+</details>
+
+<details id="tests">
+<summary><strong>🧪 Tests</strong></summary>
+
+<br />
+
+```bash
+npm run test              # all suites
+npm run test:smoke        # screens and application boot
+npm run test:git          # clone, status, commit, and pull
+npm run test:execution    # local and fallback execution
+npm run test:bridge       # Termux bridge and stdin
+npm run test:completions  # completion behavior
+npm run test:html-preview # local HTML/CSS/JS preview
+npm run test:oauth        # OAuth exchange and error handling
+npm run test:encoding     # Unicode GitHub round-trips
+npm run test:ide          # editor extensions and themes
+```
+
+Additional suites cover snippets, ZIP import/export, explorer actions, diagnostics, Markdown, formatting, Emmet, project search, editor history, persistence, and Termux previews.
+
+</details>
+
+<details id="security">
+<summary><strong>🔐 Security</strong></summary>
+
+<br />
+
+- The GitHub client secret stays server-side in the OAuth proxy.
+- GitHub authentication data is stored in IndexedDB, never in URLs or cookies.
+- API calls use HTTPS.
+- HTML previews are sandboxed.
+- Cloud code runs inside Judge0's sandbox; Termux code runs locally on your device.
+
+Please report vulnerabilities privately using [SECURITY.md](SECURITY.md).
+
+</details>
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-Issues and PRs are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and the [code of conduct](./CODE_OF_CONDUCT.md). Security reports: [SECURITY.md](./SECURITY.md).
+Ideas, issues, and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md) to get started.
 
-## License
+If CodeFlow makes coding on your phone easier, consider giving the project a ⭐ — it helps more developers discover it.
 
-[MIT](./LICENSE) © CodeFlow contributors.
+## 📄 License
 
-Made with React, CodeMirror 6, Dexie, Zustand, Tailwind CSS & Vite.
+[MIT](LICENSE) © CodeFlow contributors.
+
+<p align="center">
+  Built with React, CodeMirror 6, Dexie, Zustand, Tailwind CSS, and Vite.
+</p>

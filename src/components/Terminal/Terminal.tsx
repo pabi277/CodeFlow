@@ -21,13 +21,14 @@ export function TerminalHost() {
     return (
       <button
         onClick={() => openBottomPanel('terminal')}
-        className="flex h-9 w-full items-center gap-2 border-t border-ink/10 bg-surface px-3 text-left text-[12px] text-ink-muted active:bg-white/5 dark:border-white/10"
+        className="bar-glass relative flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] text-ink-muted transition-colors active:bg-white/5"
         aria-label="Expand panel"
       >
-        <MdExpandMore />
-        <span className="min-w-0 flex-1 truncate">{last ? last.text : 'Terminal — no output yet'}</span>
+        <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-40" />
+        <MdExpandMore className="text-accent" />
+        <span className="min-w-0 flex-1 truncate font-mono">{last ? last.text : 'Terminal — no output yet'}</span>
         {errors > 0 && (
-          <span className="flex items-center gap-1 text-red-400">
+          <span className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 font-semibold text-red-400">
             <VscError /> {errors}
           </span>
         )}
@@ -50,8 +51,14 @@ function TerminalPanel() {
   const tab = useStore((s) => s.bottomPanelTab)
   const setTab = useStore((s) => s.setBottomPanelTab)
   const diagnostics = useStore((s) => s.diagnostics)
+  const liveSessionId = useStore((s) => s.liveSessionId)
+  const livePromptOpen = useStore((s) => s.livePromptOpen)
+  const sendLiveInput = useStore((s) => s.sendLiveInput)
+  const stopLiveRun = useStore((s) => s.stopLiveRun)
   const [showInput, setShowInput] = useState(false)
+  const [liveLine, setLiveLine] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const inputOpen = showInput || livePromptOpen || !!liveSessionId
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
   const outputRef = useRef<HTMLDivElement>(null)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -79,12 +86,14 @@ function TerminalPanel() {
   const errors = diagnostics.filter((d) => d.severity === 'error').length
 
   return (
-    <div ref={parentRef} className="absolute inset-x-0 bottom-0 flex flex-col bg-panel/95 backdrop-blur shadow-modal" style={{ height: `${terminalHeight}%` }}>
+    <div ref={parentRef} className="absolute inset-x-0 bottom-0 flex flex-col border-t border-border/50 bg-panel/95 backdrop-blur-md shadow-modal animate-sheet-up" style={{ height: `${terminalHeight}%` }}>
       <div
-        className="group/term h-1.5 cursor-row-resize touch-none border-b border-border/40 bg-transparent transition-colors hover:bg-accent/60 active:bg-accent/80"
+        className="group/term h-2 cursor-row-resize touch-none bg-transparent"
         onPointerDown={onDragStart}
         aria-label="Drag to resize panel"
-      />
+      >
+        <span aria-hidden className="mx-auto mt-0.5 block h-1 w-10 rounded-full bg-ink/20 transition-colors group-hover/term:bg-accent/60" />
+      </div>
       <div className="flex h-10 items-center gap-1 border-b border-border/60 px-1">
         <PanelTab id="terminal" current={tab} onSelect={setTab} icon={<VscTerminal />} label="Terminal" />
         <PanelTab id="problems" current={tab} onSelect={setTab} icon={<VscError />} label={errors ? `Problems ${errors}` : 'Problems'} badge={errors > 0} />
@@ -92,7 +101,7 @@ function TerminalPanel() {
         <span className="flex-1" />
         {tab === 'terminal' && (
           <>
-            <TermBtn label="Input" onClick={() => setShowInput((v) => !v)} active={showInput}><VscTerminal /></TermBtn>
+            <TermBtn label="Input" onClick={() => setShowInput((v) => !v)} active={inputOpen}><VscTerminal /></TermBtn>
             <TermBtn label="History" onClick={() => { setShowHistory((v) => !v); loadHistory() }} active={showHistory}><VscHistory /></TermBtn>
             <TermBtn label="Clear" onClick={clearTerminal}><VscClearAll /></TermBtn>
           </>
@@ -134,16 +143,43 @@ function TerminalPanel() {
         </div>
       )}
 
-      {tab === 'terminal' && showInput && (
+      {tab === 'terminal' && inputOpen && (
         <div className="border-t border-border/60 p-3">
-          <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Stdin</label>
-          <textarea
-            value={stdin}
-            onChange={(e) => setStdin(e.target.value)}
-            rows={2}
-            placeholder="Input passed to your program (e.g. 5\nhello)"
-            className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
-          />
+          {liveSessionId ? (
+            <>
+              <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Type for scanf / input()</label>
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const v = liveLine
+                  setLiveLine('')
+                  void sendLiveInput(v)
+                }}
+              >
+                <input
+                  value={liveLine}
+                  onChange={(e) => setLiveLine(e.target.value)}
+                  placeholder="e.g. 1   then Send, then 42"
+                  autoComplete="off"
+                  className="min-w-0 flex-1 rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent"
+                />
+                <button type="submit" className="btn-primary rounded-lg px-3 py-2 text-[12px] font-semibold text-white">Send</button>
+                <button type="button" onClick={() => void stopLiveRun()} className="rounded-lg bg-gradient-to-b from-red-500 to-red-700 px-3 py-2 text-[12px] font-semibold text-white shadow-[0_2px_10px_-2px_rgba(239,68,68,0.6)] transition-transform active:scale-95">Stop</button>
+              </form>
+            </>
+          ) : (
+            <>
+              <label className="mb-1 block text-[11px] font-semibold uppercase text-ink-muted">Stdin (one value per line, used on next Run)</label>
+              <textarea
+                value={stdin}
+                onChange={(e) => setStdin(e.target.value)}
+                rows={3}
+                placeholder={"1\n42\n7"}
+                className="w-full resize-none rounded-lg border border-border/60 bg-black/30 px-3 py-2 font-mono text-[12px] text-ink outline-none focus:border-accent placeholder:text-ink-muted/50"
+              />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -162,8 +198,8 @@ function PanelTab({ id, current, onSelect, icon, label, badge }: {
   return (
     <button
       onClick={() => onSelect(id)}
-      className={`flex h-full items-center gap-1.5 border-b-2 px-2.5 text-[12px] font-medium ${
-        active ? 'border-accent text-ink' : 'border-transparent text-ink-muted'
+      className={`flex h-full items-center gap-1.5 border-b-2 px-2.5 text-[12px] font-medium transition-colors ${
+        active ? 'border-accent text-accent' : 'border-transparent text-ink-muted hover:text-ink'
       } ${badge && !active ? 'text-red-400' : ''}`}
     >
       {icon}
@@ -177,7 +213,6 @@ function SourceBadge({ source }: { source: string }) {
     local: { label: 'Ran locally', cls: 'bg-sky-500/15 text-sky-400' },
     termux: { label: 'Ran in Termux', cls: 'bg-emerald-500/15 text-emerald-400' },
     judge0: { label: 'Ran on Judge0', cls: 'bg-purple-500/15 text-purple-400' },
-    mock: { label: 'Mock output', cls: 'bg-white/10 text-ink-muted' },
   }
   const s = map[source] || { label: source, cls: 'bg-white/10 text-ink-muted' }
   return (
@@ -185,9 +220,15 @@ function SourceBadge({ source }: { source: string }) {
   )
 }
 
+const HEAVY_PARSE_LIMIT = 8_000
+
 function TerminalText({ text }: { text: string }) {
   const goToLocation = useStore((s) => s.goToLocation)
   const nodeMap = useStore((s) => s.nodeMap)
+  // Huge compiler dumps used to freeze the whole PWA (regex + React).
+  if (text.length > HEAVY_PARSE_LIMIT) {
+    return <span>{text.slice(0, HEAVY_PARSE_LIMIT)}{'\n'}… output truncated for performance …</span>
+  }
   const spans = parseAnsi(text)
   const plain = stripAnsi(text)
   const links = extractTerminalLinks(plain)

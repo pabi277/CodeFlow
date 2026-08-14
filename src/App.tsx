@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { FindInProject } from './components/FindInProject'
 import { Settings } from './components/Settings'
 import { ContextMenu } from './components/Shared/ContextMenu'
+import { ProgramInputWizard } from './components/ProgramInputWizard'
 import { Toasts } from './components/Shared/Toasts'
 import { RepoBrowser } from './components/GitHub/RepoBrowser'
 import { UploadModal } from './components/GitHub/UploadModal'
@@ -36,15 +37,16 @@ import { PluginHost } from './components/PluginHost'
 import { FileListSidebar } from './components/FileExplorer/FileListSidebar'
 import { initBuiltinPlugins } from './plugins/builtin'
 import { usePWA } from './hooks/usePWA'
+import { useHardwareBack } from './hooks/useHardwareBack'
 import { AiOutlineDownload } from 'react-icons/ai'
-import { VscCircleSlash, VscClose } from 'react-icons/vsc'
+import { VscCircleSlash, VscClose, VscCode } from 'react-icons/vsc'
 
 function OfflineBanner() {
   const offline = useStore((s) => s.offline)
   if (!offline) return null
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex justify-center pt-2">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-amber-500 px-4 py-1.5 text-[12px] font-semibold text-black shadow-lg">
+      <div className="animate-fade-up pointer-events-auto flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-1.5 text-[12px] font-semibold text-black shadow-[0_6px_20px_-4px_rgba(245,158,11,0.6)]">
         <VscCircleSlash /> Offline — editing works, syncing paused
       </div>
     </div>
@@ -56,13 +58,15 @@ function InstallBanner() {
   if (!canInstall) return null
   return (
     <div className="fixed inset-x-0 bottom-4 z-[45] flex justify-center px-4">
-      <div className="flex w-full max-w-sm items-center gap-3 rounded-xl bg-surface/95 p-3 shadow-xl backdrop-blur dark:bg-panel">
-        <AiOutlineDownload className="text-accent text-xl" />
+      <div className="glass animate-sheet-up flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border/50 p-3 shadow-modal">
+        <span className="icon-tile flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white">
+          <AiOutlineDownload size={18} />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold text-ink">Install CodeFlow</div>
           <div className="text-[11px] text-ink-muted">Native app experience with offline support</div>
         </div>
-        <button onClick={install} className="rounded-lg bg-accent px-3 py-1.5 text-[13px] font-semibold text-white">Install</button>
+        <button onClick={install} className="btn-primary rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white">Install</button>
         <button onClick={dismiss} aria-label="Dismiss" className="flex h-8 w-8 items-center justify-center rounded text-ink-muted active:bg-black/5 dark:active:bg-white/10">
           <VscClose />
         </button>
@@ -71,8 +75,24 @@ function InstallBanner() {
   )
 }
 
+function BootScreen() {
+  return (
+    <div className="bg-app flex h-dvh flex-col items-center justify-center gap-4">
+      <span className="icon-tile animate-pop flex h-16 w-16 items-center justify-center rounded-3xl text-white shadow-glow">
+        <VscCode size={32} />
+      </span>
+      <div className="text-gradient animate-fade-up text-lg font-bold tracking-tight">CodeFlow</div>
+      <div className="h-1 w-28 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full w-1/2 animate-[boot-slide_1s_ease-in-out_infinite] rounded-full bg-accent" />
+      </div>
+      <style>{'@keyframes boot-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }'}</style>
+    </div>
+  )
+}
+
 export default function App() {
   useIDEShortcuts()
+  useHardwareBack()
   const booted = useStore((s) => s.booted)
   const bootstrap = useStore((s) => s.bootstrap)
   const activeProjectId = useStore((s) => s.activeProjectId)
@@ -126,8 +146,28 @@ export default function App() {
     applyThemePreset(themePreset)
   }, [themePreset])
 
+  // Persist unsaved edits + editor state when the tab is hidden or unloaded.
+  // Android kills the PWA without warning — pagehide / visibilitychange are the
+  // last reliable chance to write the debounced saves and caret/scroll.
+  useEffect(() => {
+    const persistNow = () => {
+      const s = useStore.getState()
+      void s.flushDirtyTabs()
+      void s.persistEditorState()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') persistNow()
+    }
+    window.addEventListener('pagehide', persistNow)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('pagehide', persistNow)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
   if (!booted) {
-    return <div className="flex h-dvh items-center justify-center bg-surface text-ink-muted dark:bg-panel">Loading…</div>
+    return <BootScreen />
   }
 
   return (
@@ -146,7 +186,7 @@ export default function App() {
           {zenMode && (
             <button
               onClick={() => useStore.getState().toggleZen()}
-              className="fixed right-3 top-3 z-[30] rounded-full bg-surface/90 px-3 py-1.5 text-[12px] font-semibold text-ink shadow-lg dark:bg-panel/90"
+              className="glass animate-fade-up fixed right-3 top-3 z-[30] rounded-full border border-border/50 px-3.5 py-1.5 text-[12px] font-semibold text-ink shadow-card transition-transform active:scale-95"
             >
               Exit zen
             </button>
@@ -161,6 +201,7 @@ export default function App() {
       <FindInProject />
       <Settings />
       <ContextMenu />
+      <ProgramInputWizard />
       <ImportProjectModal
         open={importProjectOpen}
         onClose={() => useStore.getState().setImportProjectOpen(false)}

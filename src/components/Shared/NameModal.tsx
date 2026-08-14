@@ -42,7 +42,7 @@ export function NameModal({ open, title, initial = '', placeholder, submitLabel 
           <button
             onClick={submit}
             disabled={!value.trim()}
-            className="flex-1 rounded-xl bg-accent px-4 py-3 font-semibold text-white disabled:opacity-40"
+            className="btn-primary flex-1 rounded-xl px-4 py-3 font-semibold text-white disabled:opacity-40 disabled:shadow-none"
           >
             {submitLabel}
           </button>

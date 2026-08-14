@@ -25,6 +25,7 @@ export function Settings() {
   const rateLimit = useStore((s) => s.rateLimit)
   const loadRateLimit = useStore((s) => s.loadRateLimit)
   const termuxAvailable = useStore((s) => s.termuxAvailable)
+  const termuxError = useStore((s) => s.termuxError)
   const refreshTermuxStatus = useStore((s) => s.refreshTermuxStatus)
   const exportProjectZip = useStore((s) => s.exportProjectZip)
   const setImportProjectOpen = useStore((s) => s.setImportProjectOpen)
@@ -60,9 +61,9 @@ export function Settings() {
         onClick={() => onChange(!value)}
         role="switch"
         aria-checked={value}
-        className={`h-7 w-12 rounded-full p-1 transition-colors ${value ? 'bg-accent' : 'bg-ink/20'}`}
+        className={`h-7 w-12 rounded-full p-1 transition-all duration-200 ${value ? 'bg-gradient-to-r from-[color-mix(in_srgb,var(--accent)_80%,#7c3aed)] to-[var(--accent)] shadow-glow' : 'bg-ink/20'}`}
       >
-        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
+        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${value ? 'translate-x-5' : ''}`} />
       </button>
     </div>
   )
@@ -70,10 +71,10 @@ export function Settings() {
   const Section = ({ title, icon: Icon, children }: { title: string; icon?: IconType; children: React.ReactNode }) => (
     <div className="mb-6">
       <h3 className="mb-1.5 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wider text-ink-muted">
-        {Icon && <Icon className="text-ink-muted" size={14} />}
+        {Icon && <Icon className="text-accent" size={14} />}
         {title}
       </h3>
-      <div className="rounded-xl bg-white/5 px-4">{children}</div>
+      <div className="card-lift rounded-xl px-4">{children}</div>
     </div>
   )
 
@@ -83,7 +84,7 @@ export function Settings() {
         <button
           key={o.v}
           onClick={() => onSelect(o.v)}
-          className={`rounded-lg px-3 py-2 text-[12px] ${value === o.v ? 'bg-accent text-white' : 'bg-ink/10 text-ink'}`}
+          className={`rounded-lg px-3 py-2 text-[12px] transition-all ${value === o.v ? 'bg-accent text-white shadow-glow' : 'bg-ink/10 text-ink active:bg-ink/20'}`}
         >
           {o.label}
         </button>
@@ -106,12 +107,12 @@ export function Settings() {
   }
 
   return (
-    <div className="fixed inset-0 z-[50] bg-surface animate-drawer-in dark:bg-panel" role="dialog" aria-label="Settings">
-      <div className="flex items-center gap-1 border-b border-border/60 px-2 py-2">
+    <div className="bg-app fixed inset-0 z-[50] animate-drawer-in" role="dialog" aria-label="Settings">
+      <div className="bar-glass bar-hairline flex items-center gap-1 border-b border-border/60 px-2 py-2">
         <button onClick={() => setOpen(false)} aria-label="Back" className="flex h-11 w-11 items-center justify-center rounded-lg text-ink active:bg-black/5 dark:active:bg-white/5">
           <VscChevronLeft />
         </button>
-        <h1 className="flex-1 text-lg font-semibold text-ink">Settings</h1>
+        <h1 className="flex-1 text-lg font-bold tracking-tight text-ink">Settings</h1>
         <button onClick={() => setOpen(false)} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted active:bg-black/5 dark:active:bg-white/5">
           <VscClose />
         </button>
@@ -179,10 +180,17 @@ export function Settings() {
               <button
                 key={key}
                 onClick={() => update({ themePreset: key })}
-                className={`rounded-lg border px-3 py-2 text-left text-[12px] ${settings.themePreset === key ? 'border-accent' : 'border-ink/15'}`}
+                className={`rounded-xl border px-3 py-2.5 text-left text-[12px] transition-all duration-150 active:scale-[0.97] ${
+                  settings.themePreset === key
+                    ? 'border-transparent shadow-glow ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
+                    : 'border-ink/15 hover:border-ink/30'
+                }`}
                 style={{ backgroundColor: p.bg, color: p.text }}
               >
-                <span className="block truncate font-medium">{p.name}</span>
+                <span className="mb-1 flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.accent, boxShadow: `0 0 6px ${p.accent}` }} />
+                  <span className="truncate font-semibold">{p.name}</span>
+                </span>
                 <span className="block text-[10px] opacity-70">{p.dark ? 'Dark' : 'Light'}</span>
               </button>
             ))}
@@ -261,10 +269,17 @@ export function Settings() {
                 <span className="flex items-center gap-1 text-amber-400"><AiOutlineWarning /> Termux bridge not running</span>
               )}
             </div>
+            {!termuxAvailable && termuxError && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-amber-300/90">{termuxError}</p>
+            )}
             <p className="mt-1.5 text-[11px] text-ink-muted">
-              Termux is the backend: it runs Python with the whole project (imports work)
-              and serves HTML/CSS/JS as a live preview server. Copy the latest v2 bridge
-              script below if you still have the old one.
+              Open <b className="text-ink">this Vercel site on the same Android phone</b> that
+              runs Termux. A PC browser cannot reach Termux. Copy the <b className="text-ink">latest</b>
+              bridge script (v2.2 — it lets Chrome talk to localhost from HTTPS and adds live
+              stdin), then in Termux run <span className="font-mono">pkill -f termux-bridge</span> to
+              stop any old copy, paste the new script, and run
+              <span className="font-mono"> node termux-bridge.js</span>. Then tap Refresh and
+              <b className="text-ink"> Allow</b> if Chrome asks for local network access.
             </p>
             <div className="mt-2 flex gap-2">
               <button onClick={copyBridgeScript} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/15 px-3 py-2 text-[12px] font-medium text-accent active:opacity-80">
@@ -284,7 +299,7 @@ export function Settings() {
               placeholder="Paste your Judge0 RapidAPI key…"
               className="w-full rounded-lg border border-ink/15 bg-input px-3 py-2.5 text-[14px] text-ink outline-none focus:border-accent"
             />
-            <p className="mt-1 text-[11px] text-ink-muted">Without a key, JavaScript runs locally; other languages show sample output.</p>
+            <p className="mt-1 text-[11px] text-ink-muted">Without a key or Termux, JavaScript still runs in a sandbox; other languages report that they could not run.</p>
           </div>
           <div className="py-2.5">
             <label className="mb-1 block text-[12px] text-ink-muted">Termux bridge URL</label>

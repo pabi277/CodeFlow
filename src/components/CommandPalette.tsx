@@ -163,10 +163,10 @@ export function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-[55] flex items-start justify-center px-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={() => setOpen(false)} />
-      <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl border border-border/60 bg-surface shadow-modal animate-palette-in dark:bg-panel">
-        <div className="flex h-14 items-center gap-3 border-b border-border/60 px-4">
-          <AiOutlineSearch className="shrink-0 text-ink-muted" size={22} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[6px]" onClick={() => setOpen(false)} />
+      <div className="glass relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border/50 shadow-modal animate-palette-in">
+        <div className="flex h-14 items-center gap-3 border-b border-border/50 px-4">
+          <AiOutlineSearch className="shrink-0 text-accent" size={22} />
           <input
             ref={inputRef}
             value={query}
@@ -186,7 +186,7 @@ export function CommandPalette() {
               <button
                 key={`${r.type}-${r.label}`}
                 onClick={() => runResult(r)}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-[14px] text-ink ${i === sel ? 'bg-accent/15' : 'active:bg-accent/10'}`}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-[14px] text-ink transition-colors ${i === sel ? 'bg-accent/15 shadow-[inset_2px_0_0_var(--accent)]' : 'active:bg-accent/10'}`}
               >
                 <span className={r.type === 'file' ? 'text-ink-muted' : 'text-accent'}>
                   {r.type === 'file' ? <AiOutlineFile size={18} /> : <VscSymbolMethod size={18} />}

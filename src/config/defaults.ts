@@ -2,6 +2,19 @@ import type { AppSettings, ThemePalette } from '../types'
 
 export type { ThemePalette }
 
+/** First-run default for word wrap: on for touch (coarse pointer) devices and
+ *  narrow viewports, where long lines would otherwise scroll off-screen.
+ *  Only consulted when the user has not yet saved a word-wrap preference. */
+export function shouldDefaultWordWrapOn(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  try {
+    if (window.matchMedia('(pointer: coarse)').matches) return true
+  } catch {
+    /* ignore */
+  }
+  return (window.innerWidth || 0) < 768
+}
+
 // Default settings applied on first launch
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',

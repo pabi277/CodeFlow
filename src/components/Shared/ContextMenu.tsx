@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { BottomSheet } from './BottomSheet'
 import { NameModal } from './NameModal'
-import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw } from 'react-icons/fi'
+import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw, FiDownload } from 'react-icons/fi'
 import { AiOutlineFile } from 'react-icons/ai'
 
 export function ContextMenu() {
@@ -13,6 +13,8 @@ export function ContextMenu() {
   const renameNode = useStore((s) => s.renameNode)
   const deleteNode = useStore((s) => s.deleteNode)
   const duplicateNode = useStore((s) => s.duplicateNode)
+  const downloadNode = useStore((s) => s.downloadNode)
+  const shareNode = useStore((s) => s.shareNode)
   const setNewItemModal = useStore((s) => s.setNewItemModal)
   const showToast = useStore((s) => s.showToast)
   const setMainFile = useStore((s) => s.setMainFile)
@@ -53,15 +55,6 @@ export function ContextMenu() {
     close()
   }
 
-  const share = async () => {
-    if (node && navigator.share) {
-      try { await navigator.share({ title: node.name, text: node.content }) } catch {}
-    } else {
-      copyPath()
-    }
-    close()
-  }
-
   const Item = ({ icon, label, onPress, danger }: { icon: React.ReactNode; label: string; onPress: () => void; danger?: boolean }) => (
     <button
       onClick={() => { onPress(); close() }}
@@ -80,6 +73,8 @@ export function ContextMenu() {
         <BottomSheet open onClose={close} title={node.name}>
           <div className="divide-y divide-ink/5 pb-2 dark:divide-white/5">
             {node.type === 'file' && <Item icon={<AiOutlineFile />} label="Open" onPress={() => openFile(node.id)} />}
+            <Item icon={<FiDownload />} label={node.type === 'file' ? 'Download' : 'Download as ZIP'} onPress={() => void downloadNode(node.id)} />
+            <Item icon={<FiShare2 />} label={node.type === 'file' ? 'Share' : 'Share as ZIP'} onPress={() => void shareNode(node.id)} />
             {node.type === 'file' && <Item icon={<FiCopy />} label="Duplicate" onPress={() => duplicateNode(node.id)} />}
             {node.type === 'file' && (
               <Item
@@ -90,13 +85,12 @@ export function ContextMenu() {
             )}
             {node.type === 'folder' && <Item icon={<FiFilePlus />} label="New File Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'file' })} />}
             {node.type === 'folder' && <Item icon={<FiFolderPlus />} label="New Folder Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'folder' })} />}
-            {node.path !== '/' && <Item icon={<FiMove />} label="Move to…" onPress={() => setMovingId(node.id)} />}
+            {node.path !== '/' && <Item icon={<FiMove />} label="Change Path / Move to…" onPress={() => setMovingId(node.id)} />}
             {node.type === 'file' && dirtyTabs[node.id] && (
               <Item icon={<FiRotateCcw />} label="Revert to last save" onPress={() => { void revertToSaved(node.id) }} />
             )}
             <Item icon={<FiEdit3 />} label="Rename" onPress={() => setRenamingId(node.id)} />
             <Item icon={<FiCopy />} label="Copy Path" onPress={copyPath} />
-            {node.type === 'file' && <Item icon={<FiShare2 />} label="Share" onPress={share} />}
             <Item icon={<FiTrash2 />} label={node.type === 'file' ? 'Delete' : 'Delete Folder'} onPress={handleDelete} danger />
           </div>
         </BottomSheet>
