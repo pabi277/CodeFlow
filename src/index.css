@@ -62,20 +62,186 @@ body {
 .shadow-modal {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.12);
 }
+.dark .shadow-modal {
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 6px 20px rgba(0, 0, 0, 0.35);
+}
 .shadow-drawer {
   box-shadow: 2px 0 16px rgba(0, 0, 0, 0.2);
 }
+.dark .shadow-drawer {
+  box-shadow: 4px 0 32px rgba(0, 0, 0, 0.55);
+}
+/* Colored glow, tinted by the active theme's accent */
+.shadow-glow {
+  box-shadow: 0 4px 18px -2px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.shadow-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 14px -4px rgba(0, 0, 0, 0.12);
+}
+.dark .shadow-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+}
 
-/* App background — subtle vertical gradient for depth */
+/* App background — ambient gradient with a soft accent aura for depth */
 .bg-app {
   background:
+    radial-gradient(120% 60% at 50% -20%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 60%),
     linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(0, 0, 0, 0.02) 100%),
     var(--surface);
 }
 .dark .bg-app {
   background:
+    radial-gradient(120% 60% at 50% -20%, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 55%),
     linear-gradient(180deg, #1b1b28 0%, #16161e 100%),
     var(--surface);
+}
+
+/* ---- Signature UI elements (theme-token driven) ---- */
+
+/* Primary action — accent gradient, inner highlight, glow, springy press */
+.btn-primary {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 88%, #ffffff 12%) 0%,
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 82%, #000000 18%) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 4px 16px -2px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 6px 22px -2px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.btn-primary:active {
+  transform: scale(0.97);
+  filter: brightness(0.96);
+}
+
+/* Success (run) action — green gradient, same treatment */
+.btn-run {
+  background: linear-gradient(180deg, #3fb950 0%, #2ea043 55%, #238636 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 4px 16px -2px rgba(46, 160, 67, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn-run:hover {
+  filter: brightness(1.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 6px 24px -2px rgba(46, 160, 67, 0.7),
+    0 2px 4px rgba(0, 0, 0, 0.25);
+}
+.btn-run:active { transform: scale(0.95); filter: brightness(0.94); }
+
+/* Gradient brand text */
+.text-gradient {
+  background: linear-gradient(115deg, var(--accent) 10%, color-mix(in srgb, var(--accent) 45%, #f5c2e7 55%) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Glassy translucent surface */
+.glass {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+.dark .glass {
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+/* Gradient icon tile (logo / feature icons) */
+.icon-tile {
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--accent) 92%, #ffffff 8%) 0%,
+    color-mix(in srgb, var(--accent) 70%, #7c3aed 30%) 100%);
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, 0.35),
+    0 6px 18px -4px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* Soft accent chip / pill */
+.chip {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Elevated card with hairline border (project list, banners) */
+.card-lift {
+  background: color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 18px -8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.dark .card-lift {
+  background: color-mix(in srgb, var(--surface) 55%, #ffffff 6%);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -10px rgba(0, 0, 0, 0.5);
+}
+.card-lift:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 10px 28px -8px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.card-lift:active { transform: scale(0.985); }
+
+/* Top bar strip — glass with a gradient hairline under it */
+.bar-glass {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+}
+.dark .bar-glass {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+.bar-hairline { position: relative; }
+.bar-hairline::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 45%, transparent) 30%, color-mix(in srgb, var(--accent) 20%, transparent) 70%, transparent);
+  pointer-events: none;
+}
+
+/* Hero backdrop on the Home screen — glow orbs + faint grid */
+.home-hero { position: relative; overflow: hidden; }
+.home-hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 72%) -18% -140% / 75% 160% no-repeat,
+    radial-gradient(closest-side, color-mix(in srgb, #f5c2e7 20%, transparent) 0%, transparent 70%) 118% -90% / 70% 150% no-repeat;
+  pointer-events: none;
+}
+.home-hero::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), transparent 85%);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), transparent 85%);
+  pointer-events: none;
+}
+
+/* Keyboard toolbar keycap */
+.kbd-key {
+  background: color-mix(in srgb, var(--input) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.08s ease, background 0.15s ease;
+}
+.kbd-key:active { transform: scale(0.92) translateY(1px); }
+
+/* Text selection in accent */
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* Monospace terminal font stack */
@@ -92,19 +258,43 @@ body {
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes palette-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+@keyframes float-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes shimmer-slide { from { background-position: -200% 0; } to { background-position: 200% 0; } }
 
 .animate-drawer-in { animation: drawer-in 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
 .animate-sheet-up { animation: sheet-up 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
 .animate-palette-in { animation: palette-in 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
 .animate-toast-in { animation: toast-in 0.3s ease-out; }
+.animate-fade-up { animation: fade-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-pop { animation: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.animate-float-slow { animation: float-slow 5s ease-in-out infinite; }
+
+/* Staggered entrance for lists: set --i on each child */
+.stagger-in > * { animation: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+
+/* Shimmer sweep that crosses gradient buttons every few seconds */
+.btn-shine { position: relative; overflow: hidden; }
+.btn-shine::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.22) 50%, transparent 60%);
+  background-size: 200% 100%;
+  animation: shimmer-slide 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
 
 /* Toast fade-out before dismissal */
 @keyframes toast-out { to { opacity: 0; transform: translateY(12px); } }
 .animate-toast-out { animation: toast-out 0.2s ease-in forwards; }
 
-/* hide scrollbars on horizontal bars */
+/* slim themed scrollbars */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+* { scrollbar-color: rgba(128,128,128,0.35) transparent; }
 
 /* ---- Markdown preview ---- */
 .md-preview {

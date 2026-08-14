@@ -56,30 +56,30 @@ export function WelcomeTour() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Welcome to CodeFlow">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[4px]" onClick={finish} />
-      <div className="relative m-3 w-full max-w-md overflow-hidden rounded-2xl border border-border/60 bg-surface shadow-modal animate-sheet-up dark:bg-panel">
-        <div className="p-6 pb-4 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/15 text-accent">
-            <Icon size={28} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[6px]" onClick={finish} />
+      <div className="glass relative m-3 w-full max-w-md overflow-hidden rounded-3xl border border-border/60 shadow-modal animate-sheet-up">
+        <div className="p-6 pb-4 pt-7 text-center">
+          <div className="animate-pop mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl icon-tile text-white shadow-glow">
+            <Icon size={30} />
           </div>
-          <h2 className="text-xl font-bold text-ink">{slide.title}</h2>
-          <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{slide.body}</p>
+          <h2 className="animate-fade-up text-xl font-bold text-ink">{slide.title}</h2>
+          <p className="animate-fade-up mt-2 text-[14px] leading-relaxed text-ink-muted" style={{ ['--i' as string]: 1 }}>{slide.body}</p>
         </div>
         <div className="flex items-center justify-center gap-1.5 pb-4">
           {SLIDES.map((_, i) => (
-            <span key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-5 bg-accent' : 'w-1.5 bg-ink/20'}`} />
+            <span key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === step ? 'w-6 bg-accent shadow-glow' : 'w-1.5 bg-ink/20'}`} />
           ))}
         </div>
         <div className="flex gap-2 border-t border-border/50 p-4">
-          <button onClick={finish} className="flex-1 rounded-xl border border-ink/15 px-4 py-3 text-[14px] text-ink active:bg-white/5">
+          <button onClick={finish} className="flex-1 rounded-xl border border-ink/15 px-4 py-3 text-[14px] text-ink transition-colors active:bg-white/5">
             Skip
           </button>
           {last ? (
-            <button onClick={finish} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-[14px] font-semibold text-white">
+            <button onClick={finish} className="btn-primary btn-shine flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-[14px] font-semibold text-white">
               <VscGithub /> Start coding
             </button>
           ) : (
-            <button onClick={() => setStep((s) => s + 1)} className="flex-1 rounded-xl bg-accent px-4 py-3 text-[14px] font-semibold text-white">
+            <button onClick={() => setStep((s) => s + 1)} className="btn-primary flex-1 rounded-xl px-4 py-3 text-[14px] font-semibold text-white">
               Next
             </button>
           )}

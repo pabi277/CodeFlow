@@ -72,7 +72,7 @@ export function TabBar() {
   const menuNode = menuId ? nodeMap[menuId] : undefined
 
   return (
-    <div className="relative flex h-10 items-stretch border-b border-border/60 bg-surface dark:bg-panel">
+    <div className="bar-glass relative flex h-10 items-stretch border-b border-border/60">
       {canLeft && (
         <button
           onClick={() => { scrollRef.current?.scrollBy({ left: -160, behavior: 'smooth' }) }}
@@ -102,16 +102,18 @@ export function TabBar() {
               }}
               onClick={() => setActiveTab(id)}
               onContextMenu={(e) => { e.preventDefault(); setMenuId(id) }}
-              className={`group relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg px-2.5 text-[13px] transition-colors duration-200 ${
+              className={`group relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg px-2.5 text-[13px] transition-all duration-200 ${
                 active
-                  ? 'bg-surface font-medium text-ink dark:bg-panel'
-                  : 'bg-transparent text-ink-muted hover:bg-white/5'
+                  ? 'bg-surface font-medium text-ink dark:bg-white/10'
+                  : 'bg-transparent text-ink-muted hover:bg-white/5 hover:text-ink'
               }`}
-              style={active ? { boxShadow: 'inset 0 -2px 0 var(--accent)' } : undefined}
+              style={active
+                ? { boxShadow: 'inset 0 -2px 0 var(--accent), 0 6px 14px -8px color-mix(in srgb, var(--accent) 50%, transparent)' }
+                : undefined}
               role="tab"
               aria-selected={active}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${dirtyTabs[id] ? 'animate-pulse bg-[#fb8500]' : 'bg-transparent'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full transition-all ${dirtyTabs[id] ? 'animate-pulse bg-[#fb8500] shadow-[0_0_6px_#fb8500]' : 'bg-transparent'}`} />
               <FileIcon name={node.name} type="file" size={14} />
               <span className="max-w-[110px] truncate font-medium">{node.name}</span>
               {pinned ? (
@@ -141,7 +143,7 @@ export function TabBar() {
 
       {menuNode && menuId && (
         <div className="fixed inset-0 z-[40]" onClick={() => setMenuId(null)}>
-          <div className="absolute left-1/2 top-12 w-56 -translate-x-1/2 overflow-hidden rounded-xl border border-border/60 bg-surface py-1 shadow-modal dark:bg-panel">
+          <div className="glass animate-pop absolute left-1/2 top-12 w-56 -translate-x-1/2 overflow-hidden rounded-xl border border-border/60 py-1 shadow-modal">
             <MenuRow label={pinnedTabs.includes(menuId) ? 'Unpin' : 'Pin'} onClick={() => { togglePinTab(menuId); setMenuId(null) }} />
             <MenuRow label="Close" onClick={() => { handleClose(menuId, menuNode.name); setMenuId(null) }} />
             <MenuRow label="Close others" onClick={() => { void closeOtherTabs(menuId); setMenuId(null) }} />

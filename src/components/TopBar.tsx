@@ -56,20 +56,24 @@ export function TopBar() {
 
   return (
     <>
-      <div className="flex items-center gap-1 border-b border-border/60 bg-surface/95 px-2 py-1.5 shadow-lift dark:bg-panel">
+      <div className="bar-glass bar-hairline flex items-center gap-1 border-b border-border/60 px-2 py-1.5">
         <IconButton label="Menu" onClick={() => toggleDrawer()}>
           <HiMenu size={22} />
         </IconButton>
         <button
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-2 text-left active:bg-black/5 dark:active:bg-white/5"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-2 text-left transition-colors active:bg-black/5 dark:active:bg-white/5"
           onClick={() => setCommandPalette(true)}
           onDoubleClick={() => setCommandPalette(true)}
           aria-label="Open command palette"
         >
           <span className="truncate text-[15px] font-semibold text-ink">{activeFile ? activeFile.name : 'No file open'}</span>
           {activeFile && (
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${dirty ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
-              {dirty ? 'unsaved' : 'saved'}
+            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+              dirty
+                ? 'border-amber-500/30 bg-amber-500/15 text-amber-400'
+                : 'border-emerald-500/30 bg-emerald-500/15 text-emerald-400'
+            }`}>
+              {dirty ? '● unsaved' : '✓ saved'}
             </span>
           )}
         </button>
@@ -82,7 +86,7 @@ export function TopBar() {
           <button
             onClick={() => void stopLiveRun()}
             aria-label="Stop program"
-            className="flex h-11 items-center gap-2 rounded-lg bg-red-600 px-4 font-semibold text-white"
+            className="flex h-11 items-center gap-2 rounded-xl bg-gradient-to-b from-red-500 to-red-700 px-4 font-semibold text-white shadow-[0_4px_16px_-2px_rgba(239,68,68,0.6),inset_0_1px_0_rgba(255,255,255,0.25)] transition-transform duration-150 active:scale-95"
           >
             <FaStop size={12} />
             <span className="text-[13px]">Stop</span>
@@ -91,7 +95,7 @@ export function TopBar() {
           <button
             onClick={() => runCurrentFile()}
             aria-label="Run code"
-            className="flex h-11 items-center gap-2 rounded-lg bg-[#2ea043] px-4 font-semibold text-white transition-all duration-150 hover:bg-[#2c974b] active:scale-[0.98] active:opacity-90"
+            className="btn-run flex h-11 items-center gap-2 rounded-xl px-4 font-semibold text-white"
           >
             {running ? <FaPlay className="animate-pulse" size={14} /> : <FaPlay size={14} />}
             <span className="text-[13px]">{runLabel}</span>

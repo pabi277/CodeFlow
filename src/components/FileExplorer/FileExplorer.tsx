@@ -64,13 +64,13 @@ export function FileExplorer() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search files…"
-            className="h-10 w-full rounded-md border border-border/60 bg-input pl-9 pr-3 text-[14px] text-ink outline-none transition-shadow focus:border-accent focus:shadow-[0_0_0_3px_rgba(9,105,218,0.15)] placeholder:text-ink-muted/60"
+            className="h-10 w-full rounded-lg border border-border/60 bg-input pl-9 pr-3 text-[14px] text-ink outline-none transition-shadow focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_25%,transparent)] placeholder:text-ink-muted/60"
           />
         </div>
         <button
           onClick={() => setNewItemModal({ parentId: null, type: 'file' })}
           aria-label="New file"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent text-white active:opacity-80"
+          className="btn-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white"
         >
           <AiOutlinePlus size={20} />
         </button>
