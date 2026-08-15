@@ -24,7 +24,7 @@ export function SymbolSearch() {
   const symbols = useMemo(() => {
     const files = Object.values(nodeMap).filter((n) => n.type === 'file').map((n) => ({ id: n.id, path: n.path, content: n.content }))
     return collectWorkspaceSymbols(files)
-  }, [nodeMap, open])
+  }, [nodeMap])
 
   const results = useMemo(() => filterSymbols(symbols, query), [symbols, query])
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { FileIcon } from '../utils/getFileIcon'
+import { FileIcon } from './Shared/FileIcon'
 import { VscClose, VscChevronLeft, VscChevronRight, VscPinned } from 'react-icons/vsc'
 
 export function TabBar() {

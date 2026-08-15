@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { VscCode, VscPlay, VscEye, VscGithub } from 'react-icons/vsc'
-
-const KEY = 'codeflow.welcome.v1'
+import { markWelcomeSeen } from '../utils/welcome'
 
 const SLIDES = [
   {
@@ -21,18 +20,6 @@ const SLIDES = [
     body: 'Open an HTML file and tap the eye icon. CSS and JS load from your project. With Termux you get a live server and an optional new tab.',
   },
 ]
-
-export function shouldShowWelcome(): boolean {
-  try {
-    return localStorage.getItem(KEY) !== '1'
-  } catch {
-    return true
-  }
-}
-
-export function markWelcomeSeen() {
-  try { localStorage.setItem(KEY, '1') } catch { /* ignore */ }
-}
 
 export function WelcomeTour() {
   const open = useStore((s) => s.welcomeOpen)

@@ -49,6 +49,7 @@ import { convertLineEnding, type LineEnding } from '../utils/lineEnding'
 import { inputPrompts, programNeedsInput } from '../utils/programInput'
 import { setBridgeOrigin } from '../services/bridgeUrl'
 import type { GitStatusItem } from '../services/gitService'
+import { friendlyGitHubError } from '../utils/errors'
 
 export type ContextMenuState = { nodeId: string; x: number; y: number; clientX: number; clientY: number } | null
 export type InputWizardState = { fileId: string; prompts: string[]; values: string[]; index: number } | null
@@ -984,7 +985,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const repos = await ghSvc.listRepos(auth.token)
       set({ repos })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'load your repositories'), 'error')
     } finally {
       set({ reposLoading: false })
     }
@@ -1001,7 +1002,7 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast(`Cloned ${repo.full_name}`, 'success')
     } catch (err) {
       set({ cloneProgress: null })
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'clone this repository'), 'error')
     }
   },
   openUpload: () => set({ uploadOpen: true }),
@@ -1022,7 +1023,7 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast(`Uploaded to ${result.owner}/${result.repo}`, 'success')
     } catch (err) {
       set({ uploading: false, cloneProgress: null })
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'upload this project'), 'error')
     }
   },
   importZipIntoCurrentProject: async (file) => {
@@ -1053,7 +1054,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ commitOpen: false })
       get().showToast(`Committed & pushed ${sha.slice(0, 7)}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'push your changes'), 'error')
     }
   },
   openBranchPicker: () => { set({ branchPickerOpen: true }); get().loadBranches() },
@@ -1065,7 +1066,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const branches = await gitService.listBranches(pid)
       set({ branches })
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'load branches'), 'error')
     }
   },
   doSwitchBranch: async (name) => {
@@ -1077,7 +1078,7 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast(`Switched to ${name}`, 'success')
       await get().doPull()
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'switch branches'), 'error')
     }
   },
   doCreateBranch: async (name) => {
@@ -1088,7 +1089,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().loadBranches()
       get().showToast(`Created branch ${name}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'create this branch'), 'error')
     }
   },
   doDeleteBranch: async (name) => {
@@ -1100,7 +1101,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().loadBranches()
       get().showToast(`Deleted ${name}`, 'success')
     } catch (err) {
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'delete this branch'), 'error')
     }
   },
   openConflict: (fileId) => set({ conflictFileId: fileId }),
@@ -1169,7 +1170,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
     } catch (err) {
       set({ cloneProgress: null, pulling: false })
-      get().showToast((err as Error).message, 'error')
+      get().showToast(friendlyGitHubError(err, 'pull the latest changes'), 'error')
     }
   },
   refreshGitStatus: async () => {

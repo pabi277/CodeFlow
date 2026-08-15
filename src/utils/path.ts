@@ -41,7 +41,7 @@ export function getExtension(path: string): string {
 }
 
 /** Invalid characters for file/folder names (portable-safe) */
-const INVALID_NAME_CHARS = /[\/\\:*?"<>|]/
+const INVALID_NAME_CHARS = /[/\\:*?"<>|]/
 
 export function validateName(name: string): string | null {
   if (!name || name.trim() === '') return 'Name cannot be empty'

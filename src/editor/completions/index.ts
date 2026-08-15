@@ -47,7 +47,7 @@ export function getCompletionSourceForLanguage(language: string) {
     // Symbol pair suggestions (type "(" → suggest "()")
     const pairOptions = symbolPairCompletion(context)
     if (pairOptions && pairOptions.length) {
-      const before = context.matchBefore(/[({[\"'`]/)!
+      const before = context.matchBefore(/[({["'`]/)!
       return { from: before.from, options: pairOptions, validFor: /^$/ }
     }
 
