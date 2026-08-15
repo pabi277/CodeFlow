@@ -4,7 +4,7 @@ import { MdExpandMore } from 'react-icons/md'
 import { AiOutlineSearch, AiOutlinePlus } from 'react-icons/ai'
 import { FiMoreVertical } from 'react-icons/fi'
 import type { FileNode } from '../../types'
-import { FileIcon } from '../../utils/getFileIcon'
+import { FileIcon } from '../Shared/FileIcon'
 import { BottomSheet } from '../Shared/BottomSheet'
 
 function nameColor(node: FileNode): string {

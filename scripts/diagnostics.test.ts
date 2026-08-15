@@ -60,7 +60,7 @@ function main() {
   ok(collectDrafts('def greet(name: str) -> str:\n    return f"Hello, {name}!"\n', '/util.py').length === 0, 'python f-string and type hints are clean')
 
   console.log('\n[c language]')
-  const cOk = collectDrafts('#include <stdio.h>\nint main(void) {\n  printf(\"hi\\n\");\n  return 0;\n}\n', '/main.c')
+  const cOk = collectDrafts('#include <stdio.h>\nint main(void) {\n  printf("hi\\n");\n  return 0;\n}\n', '/main.c')
   ok(cOk.length === 0, `valid C is clean (got ${cOk.map((d) => d.message).join('; ')})`)
   ok(collectDrafts('int x = 1\n', '/a.c').some((d) => d.source === 'c-semicolon'), 'C missing semicolon')
   ok(collectDrafts('#ifdef FOO\nint x;\n', '/a.c').some((d) => d.message.includes('#if')), 'C unclosed #ifdef')

@@ -193,7 +193,6 @@ async function main() {
   ok(status.some((s) => s.path === '/main.py' && s.status === 'modified'), 'main.py appears as modified')
 
   console.log('\n[4] commitChanges (push)')
-  const modifiedNode = await fsDb.getNode(py!.id)!
   const sha = await gitService.commitChanges(project.id, { message: 'update main', includeIds: [py!.id], push: true })
   ok(typeof sha === 'string' && sha.length > 0, `commit returned sha ${sha.slice(0, 7)}`)
   // remote should now reflect the change

@@ -29,10 +29,12 @@ const SGR: Record<number, string> = {
   97: 'text-white',
 }
 
-const CSI = /\x1b\[([0-9;]*)m/g
+const ESC = '\x1b'
+const CSI = new RegExp(`${ESC}\\[([0-9;]*)m`, 'g')
+const ANSI_SEQUENCE = new RegExp(`${ESC}\\[[0-9;]*[A-Za-z]`, 'g')
 
 export function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+  return text.replace(ANSI_SEQUENCE, '')
 }
 
 export function parseAnsi(text: string): AnsiSpan[] {

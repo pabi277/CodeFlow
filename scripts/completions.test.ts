@@ -5,9 +5,8 @@ import { extractLocalSymbols } from '../src/editor/completions/localSymbols'
 import { KEYWORDS_BY_LANG } from '../src/editor/completions/keywords'
 import {
   PYTHON_COMPLETIONS, JS_COMPLETIONS, CPP_COMPLETIONS, C_COMPLETIONS, JAVA_COMPLETIONS,
-  symbolPairCompletion, templateCompletion,
+  templateCompletion,
 } from '../src/editor/completions/keywordCompletions'
-import type { CompletionContext } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
 
 let pass = 0

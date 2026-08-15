@@ -46,3 +46,48 @@ export function parseCompilerError(output: string): CompiledErrorLocation | null
   const firstLine = output.split('\n').find((l) => l.trim().length > 0)
   return { message: firstLine || 'Compilation failed' }
 }
+
+/**
+ * Turn low-level GitHub REST failures into a short explanation and a next step.
+ * GitHub frequently returns generic messages such as "Conflict" with status 409;
+ * those are useful to an API client but not to someone trying to save their work.
+ */
+export function friendlyGitHubError(err: unknown, action = 'complete this GitHub action'): string {
+  const response = typeof err === 'object' && err !== null && 'response' in err
+    ? (err as { response?: { status?: number; data?: { message?: unknown; errors?: unknown[] } } }).response
+    : undefined
+  const status = response?.status
+  const apiMessage = typeof response?.data?.message === 'string' ? response.data.message : ''
+  const detail = apiMessage.toLowerCase()
+
+  if (!status) {
+    if (axios.isAxiosError(err)) return 'Can’t reach GitHub. Check your connection and try again.'
+    if (err instanceof Error && err.message) return err.message
+    return `Couldn’t ${action}. Please try again.`
+  }
+
+  if (status === 401) return 'GitHub sign-in expired. Reconnect GitHub, then try again.'
+  if (status === 403) {
+    if (detail.includes('rate limit')) return 'GitHub is temporarily rate-limiting requests. Wait a few minutes, then try again.'
+    if (detail.includes('protected branch')) return 'This branch is protected. Push to a different branch or ask a repository maintainer for access.'
+    return 'GitHub denied permission for this action. Reconnect with a token that can access this repository and push to this branch.'
+  }
+  if (status === 404) return 'GitHub could not find this repository or your account cannot access it. Check the repository and reconnect GitHub if needed.'
+  if (status === 409) {
+    if (detail.includes('git repository is empty')) {
+      return 'This GitHub repository has no commits yet. Add a file, then use Commit & Push to create its first commit.'
+    }
+    if (detail.includes('reference update') || detail.includes('fast forward') || detail.includes('conflict')) {
+      return 'GitHub has newer changes on this branch. Pull first, resolve any conflicts, then push again.'
+    }
+    return 'GitHub found a conflict while saving your changes. Pull the latest changes, then try pushing again.'
+  }
+  if (status === 422) {
+    if (detail.includes('already exists')) return 'That GitHub repository or branch already exists. Choose a different name, or connect to the existing repository.'
+    if (detail.includes('protected branch')) return 'This branch is protected. Push to a different branch or ask a repository maintainer for access.'
+    return 'GitHub could not accept these changes. Check the repository name, branch, and file paths, then try again.'
+  }
+  if (status === 429) return 'GitHub is receiving too many requests. Wait a moment, then try again.'
+  if (status >= 500) return 'GitHub is having a temporary problem. Your local changes are safe; try again shortly.'
+  return `GitHub couldn’t ${action}. Please try again.`
+}

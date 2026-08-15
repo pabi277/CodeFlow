@@ -173,17 +173,17 @@ export const C_COMPLETIONS: Completion[] = [
   templateCompletion('typedef struct', 'typedef struct $0 {\n  \n} $0;'),
   templateCompletion('enum', 'enum $0 {\n  \n};'),
   templateCompletion('union', 'union $0 {\n  \n};'),
-  templateCompletion('printf', 'printf(\"$0\\n\");', { detail: 'stdio.h', type: 'function' }),
-  templateCompletion('scanf', 'scanf(\"%d\", &$0);', { detail: 'stdio.h', type: 'function' }),
-  templateCompletion('fprintf', 'fprintf(stderr, \"$0\\n\");', { detail: 'stdio.h', type: 'function' }),
-  templateCompletion('snprintf', 'snprintf($0, sizeof(), \"\");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('printf', 'printf("$0\\n");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('scanf', 'scanf("%d", &$0);', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('fprintf', 'fprintf(stderr, "$0\\n");', { detail: 'stdio.h', type: 'function' }),
+  templateCompletion('snprintf', 'snprintf($0, sizeof(), "");', { detail: 'stdio.h', type: 'function' }),
   templateCompletion('malloc', 'malloc(sizeof($0));', { detail: 'stdlib.h', type: 'function' }),
   templateCompletion('calloc', 'calloc($0, sizeof());', { detail: 'stdlib.h', type: 'function' }),
   templateCompletion('realloc', 'realloc($0, );', { detail: 'stdlib.h', type: 'function' }),
   templateCompletion('free', 'free($0);', { detail: 'stdlib.h', type: 'function' }),
   templateCompletion('sizeof', 'sizeof($0)', { type: 'operator' }),
   templateCompletion('include', '#include <$0>', { type: 'preprocessor' }),
-  templateCompletion('include quote', '#include \"$0\"', { type: 'preprocessor' }),
+  templateCompletion('include quote', '#include "$0"', { type: 'preprocessor' }),
   templateCompletion('define', '#define $0 ', { type: 'preprocessor' }),
   templateCompletion('ifdef', '#ifdef $0\n#endif', { type: 'preprocessor' }),
   templateCompletion('ifndef', '#ifndef $0\n#define $0\n\n#endif', { type: 'preprocessor' }),
@@ -289,7 +289,7 @@ export const TEMPLATE_COMPLETIONS_BY_LANG: Record<string, Completion[]> = {
 // Symbol pair suggestions (appear when typing a trigger char)
 // ---------------------------------------------------------------------------
 export function symbolPairCompletion(context: CompletionContext): Completion[] | null {
-  const before = context.matchBefore(/[({[\"'`]/)
+  const before = context.matchBefore(/[({["'`]/)
   if (!before) return null
   const char = before.text
   const pairs: Record<string, string[]> = {
