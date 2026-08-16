@@ -111,6 +111,34 @@ export function extractLocalSymbols(code: string, language: string): LocalSymbol
       if (cls) push(cls[1], 'class', i + 1)
       for (const match of line.matchAll(/\$([A-Za-z_]\w*)/g)) push(match[1], 'variable', i + 1)
     }
+  } else if (['kotlin', 'swift', 'csharp', 'dart', 'scala', 'groovy'].includes(language)) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const cls = line.match(/\b(?:class|struct|interface|protocol|enum|trait|object|record)\s+([A-Za-z_]\w*)/)
+      if (cls) push(cls[1], 'class', i + 1)
+      const fn = line.match(/\b(?:fun|func|function|def|void|[A-Za-z_]\w*(?:<[^>]+>)?)\s+([A-Za-z_]\w*)\s*\(([^)]*)/)
+      if (fn) { push(fn[1], 'function', i + 1); pushParams(fn[2], i + 1) }
+      const variable = line.match(/\b(?:val|var|let|const|final|def)\s+([A-Za-z_]\w*)/)
+      if (variable) push(variable[1], 'variable', i + 1)
+    }
+  } else if (language === 'ruby' || language === 'lua') {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const fn = line.match(/^\s*(?:def|function|local\s+function)\s+([A-Za-z_]\w*)\s*(?:\(([^)]*)\))?/)
+      if (fn) { push(fn[1], 'function', i + 1); pushParams(fn[2] || '', i + 1) }
+      const cls = line.match(/^\s*(?:class|module)\s+([A-Za-z_]\w*)/)
+      if (cls) push(cls[1], 'class', i + 1)
+      const variable = line.match(/^\s*(?:local\s+)?([A-Za-z_]\w*)\s*=/)
+      if (variable) push(variable[1], 'variable', i + 1)
+    }
+  } else if (language === 'perl' || language === 'r') {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const fn = line.match(/\b(?:sub|function)\s*([A-Za-z_]\w*)?/) || line.match(/^\s*([A-Za-z_]\w*)\s*<-\s*function\b/)
+      if (fn?.[1]) push(fn[1], 'function', i + 1)
+      const variable = line.match(/(?:\bmy\s+[$@%]|^\s*)([A-Za-z_]\w*)\s*(?:<-|=)/)
+      if (variable) push(variable[1], 'variable', i + 1)
+    }
   }
 
   return symbols

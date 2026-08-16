@@ -8,6 +8,7 @@ import {
   templateCompletion,
 } from '../src/editor/completions/keywordCompletions'
 import { EditorState } from '@codemirror/state'
+import { indentUnit } from '@codemirror/language'
 import { CompletionContext } from '@codemirror/autocomplete'
 import { getCompletionSourceForLanguage } from '../src/editor/completions'
 import { setProjectIndex } from '../src/editor/completions/projectIndex'
@@ -114,6 +115,15 @@ static int count = 0;
   }
   applyOf(tpl)(view, tpl, 0, 3)
   ok(applied === 'printf("");', `template inserts 'printf("");' (got '${applied}')`)
+  const nestedState = EditorState.create({ doc: '    iff', extensions: [indentUnit.of('    ')] })
+  let nested = ''
+  const block = templateCompletion('if', 'if ($0) {\n  \n}')
+  applyOf(block)({
+    state: nestedState,
+    dispatch: (tr: any) => { nested = tr.changes.insert || '' },
+    focus: () => {},
+  }, block, 4, 7)
+  ok(nested === 'if () {\n        \n    }', `nested snippets preserve base and configured indentation (got ${JSON.stringify(nested)})`)
 
   console.log('\n[workspace IntelliSense]')
   setProjectIndex('/src/main.ts', [
@@ -130,12 +140,37 @@ static int count = 0;
   const memberState = EditorState.create({ doc: 'items.' })
   const memberResult = source(new CompletionContext(memberState, 6, false))
   ok(!!memberResult?.options.some((entry) => entry.label === 'map'), 'member completion opens immediately after a dot')
+  const typedArray = EditorState.create({ doc: 'const values = [];\nvalues.' })
+  const arrayResult = source(new CompletionContext(typedArray, typedArray.doc.length, false))
+  ok(!!arrayResult?.options.some((entry) => entry.label === 'push' && entry.detail === 'Array'), 'infers JavaScript array members')
+  const commentState = EditorState.create({ doc: '// cons' })
+  ok(source(new CompletionContext(commentState, commentState.doc.length, false)) === null, 'does not interrupt comments with suggestions')
+  const wordState = EditorState.create({ doc: 'const customerReference = 1;\ncust' })
+  const wordResult = source(new CompletionContext(wordState, wordState.doc.length, false))
+  ok(!!wordResult?.options.some((entry) => entry.label === 'customerReference'), 'suggests useful words already used in the document')
+
+  const pySource = getCompletionSourceForLanguage('python')
+  const pyDict = EditorState.create({ doc: 'user = {}\nuser.' })
+  const pyMembers = pySource(new CompletionContext(pyDict, pyDict.doc.length, false))
+  ok(!!pyMembers?.options.some((entry) => entry.label === 'items' && entry.detail === 'dict'), 'infers Python dictionary members')
+
+  const cSource = getCompletionSourceForLanguage('c')
+  const cStruct = EditorState.create({ doc: 'struct User { int id; char name[20]; };\nstruct User user;\nuser.' })
+  const cMembers = cSource(new CompletionContext(cStruct, cStruct.doc.length, false))
+  ok(!!cMembers?.options.some((entry) => entry.label === 'id' && String(entry.detail).includes('struct User')), 'suggests actual C struct fields')
 
   console.log('\n[more languages]')
   ok(KEYWORDS_BY_LANG.go.some((k) => k.label === 'func'), 'Go keywords are available')
   ok(KEYWORDS_BY_LANG.rust.some((k) => k.label === 'impl'), 'Rust keywords are available')
   ok(KEYWORDS_BY_LANG.php.some((k) => k.label === 'foreach'), 'PHP keywords are available')
   ok(KEYWORDS_BY_LANG.sql.some((k) => k.label === 'SELECT'), 'SQL keywords are available')
+  for (const language of ['kotlin', 'swift', 'ruby', 'lua', 'csharp', 'dart', 'scala', 'perl', 'r', 'pascal', 'groovy', 'fsharp', 'ocaml', 'clojure', 'vbnet', 'cobol']) {
+    ok((KEYWORDS_BY_LANG[language]?.length || 0) > 5, `${language} has a baseline completion catalog`)
+  }
+  const phpSource = getCompletionSourceForLanguage('php')
+  const phpState = EditorState.create({ doc: '$username = "Ada";\n$user' })
+  const phpResult = phpSource(new CompletionContext(phpState, phpState.doc.length, false))
+  ok(phpResult?.from === phpState.doc.length - 4 && phpResult.options.some((entry) => entry.label === 'username'), 'PHP $variables complete without duplicating the sigil')
   const go = extractLocalSymbols('func calculate(a int) int {\n  result := a\n  return result\n}', 'go')
   ok(labels(go).includes('calculate'), 'Go local function is indexed')
   const rust = extractLocalSymbols('struct User { id: u64 }\nfn load_user(id: u64) { let result = id; }', 'rust')

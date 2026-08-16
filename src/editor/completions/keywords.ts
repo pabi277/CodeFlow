@@ -1,5 +1,6 @@
 // Language keyword / builtin / common-API completion lists.
 import { C_KEYWORDS as C_KW, C_TYPES, C_PREPROCESSOR, C_STDLIB } from '../cLanguage'
+import { EXTRA_LANGUAGE_ENTRIES } from './languageCatalogs'
 
 export interface CompletionEntry {
   label: string
@@ -193,4 +194,5 @@ export const KEYWORDS_BY_LANG: Record<string, CompletionEntry[]> = {
   php: PHP_ENTRIES,
   shell: SHELL_ENTRIES,
   sql: SQL_ENTRIES,
+  ...EXTRA_LANGUAGE_ENTRIES,
 }

@@ -5,6 +5,8 @@ import { TEMPLATE_COMPLETIONS_BY_LANG } from './keywordCompletions'
 import { extractLocalSymbols, localSymbolsToEntries } from './localSymbols'
 import { getProjectIndex, getProjectSymbols } from './projectIndex'
 import { matchImportContext, suggestImportPaths } from '../../utils/importPaths'
+import { completionSyntaxContext, documentWordCompletions, receiverBeforeMember } from './context'
+import { memberCompletions } from './memberCompletions'
 
 const TYPE_BOOST: Record<string, number> = {
   variable: 8, function: 7, class: 7, type: 6, constant: 5, member: 5, keyword: 1,
@@ -78,6 +80,15 @@ function cHeaderCompletion(context: CompletionContext, language: string): Comple
 export function getCompletionSourceForLanguage(language: string) {
   const templates = TEMPLATE_COMPLETIONS_BY_LANG[language] || []
   const plainKeywords = keywordsFor(language)
+  let cachedCode = ''
+  let cachedLocals: CompletionEntry[] = []
+  const localsFor = (code: string) => {
+    if (code !== cachedCode) {
+      cachedCode = code
+      cachedLocals = localSymbolsToEntries(extractLocalSymbols(code, language))
+    }
+    return cachedLocals
+  }
   const memberSet = ['javascript', 'typescript'].includes(language)
     ? JS_OBJECT_MEMBERS
     : language === 'c' || language === 'cpp'
@@ -103,32 +114,43 @@ export function getCompletionSourceForLanguage(language: string) {
       }
     }
 
+    // Import/header strings were handled above. Everywhere else, avoid the
+    // distracting keyword popup while writing prose, comments, and literals.
+    if (completionSyntaxContext(context.state, context.pos, language) !== 'code') return null
+
     const word = context.matchBefore(/[\w$]*/)
     if (!word) return null
+    const sigilWord = (language === 'php' || language === 'shell' || language === 'perl') && word.text.startsWith('$')
+    const completionFrom = sigilWord ? word.from + 1 : word.from
     const charBefore = context.state.sliceDoc(Math.max(0, word.from - 1), word.from)
     const arrow = context.state.sliceDoc(Math.max(0, word.from - 2), word.from) === '->'
     const member = charBefore === '.' || arrow
     if (word.from === word.to && !context.explicit && !member) return null
 
     const code = context.state.doc.toString()
-    const locals = localSymbolsToEntries(extractLocalSymbols(code, language))
+    const locals = localsFor(code)
     let options: Completion[]
 
     if (member) {
+      const receiver = receiverBeforeMember(context.state, word.from)
+      const inferred = memberCompletions(language, receiver, code)
       options = [
-        ...memberSet.map((entry) => completionFromEntry(entry, 'Members', 6)),
-        ...locals.filter((entry) => entry.type === 'variable').map((entry) => completionFromEntry(entry, 'Local', 3)),
+        ...inferred.map((entry) => completionFromEntry(entry, receiver || 'Members', 12)),
+        ...memberSet.map((entry) => completionFromEntry(entry, 'Members', 5)),
+        ...locals.filter((entry) => entry.type === 'variable').map((entry) => completionFromEntry(entry, 'Local', 2)),
       ]
     } else {
       const localOptions = locals.map((entry) => completionFromEntry(entry, 'Local', TYPE_BOOST[entry.type] || 8))
       const projectOptions = getProjectSymbols(language)
         .map((entry) => completionFromEntry(entry, 'Workspace', 4))
       const snippetOptions = templates.map((option) => ({ ...option, section: 'Snippets', boost: option.boost ?? 3 }))
-      options = [...localOptions, ...projectOptions, ...snippetOptions, ...plainKeywords]
+      const known = new Set([...localOptions, ...projectOptions, ...snippetOptions, ...plainKeywords].map((option) => option.label))
+      const words = documentWordCompletions(context.state, word.text, known)
+      options = [...localOptions, ...projectOptions, ...snippetOptions, ...plainKeywords, ...words]
     }
 
     options = unique(options).slice(0, 400)
     if (!options.length) return null
-    return { from: word.from, options, validFor: /^[\w$]*$/ }
+    return { from: completionFrom, options, validFor: sigilWord ? /^\w*$/ : /^[\w$]*$/ }
   }
 }
