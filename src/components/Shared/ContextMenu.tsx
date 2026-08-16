@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { BottomSheet } from './BottomSheet'
 import { NameModal } from './NameModal'
-import { FiCopy, FiEdit3, FiTrash2, FiFilePlus, FiFolderPlus, FiShare2, FiPlayCircle, FiMove, FiRotateCcw, FiDownload } from 'react-icons/fi'
+import { FiCopy, FiDownload, FiEdit3, FiFilePlus, FiFolderPlus, FiMove, FiPlayCircle, FiRotateCcw, FiShare2, FiTrash2, FiUpload } from 'react-icons/fi'
 import { AiOutlineFile } from 'react-icons/ai'
 
 export function ContextMenu() {
@@ -18,6 +18,9 @@ export function ContextMenu() {
   const setNewItemModal = useStore((s) => s.setNewItemModal)
   const showToast = useStore((s) => s.showToast)
   const setMainFile = useStore((s) => s.setMainFile)
+  const uploadFilesToFolder = useStore((s) => s.uploadFilesToFolder)
+  const uploadRef = useRef<HTMLInputElement>(null)
+  const uploadFolderId = useRef<string | null>(null)
   const activeProjectId = useStore((s) => s.activeProjectId)
   const runConfiguration = useStore((s) => s.settings.runConfiguration)
 
@@ -69,6 +72,20 @@ export function ContextMenu() {
 
   return (
     <>
+      <input
+        ref={uploadRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-label="Upload files into folder"
+        onChange={async (event) => {
+          const files = event.target.files
+          const folderId = uploadFolderId.current
+          if (files?.length && folderId) await uploadFilesToFolder(folderId, files)
+          event.target.value = ''
+          uploadFolderId.current = null
+        }}
+      />
       {node && (
         <BottomSheet open onClose={close} title={node.name}>
           <div className="divide-y divide-ink/5 pb-2 dark:divide-white/5">
@@ -84,6 +101,7 @@ export function ContextMenu() {
               />
             )}
             {node.type === 'folder' && <Item icon={<FiFilePlus />} label="New File Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'file' })} />}
+            {node.type === 'folder' && <Item icon={<FiUpload />} label="Upload File(s) Inside" onPress={() => { uploadFolderId.current = node.id; uploadRef.current?.click() }} />}
             {node.type === 'folder' && <Item icon={<FiFolderPlus />} label="New Folder Inside" onPress={() => setNewItemModal({ parentId: node.id, type: 'folder' })} />}
             {node.path !== '/' && <Item icon={<FiMove />} label="Change Path / Move to…" onPress={() => setMovingId(node.id)} />}
             {node.type === 'file' && dirtyTabs[node.id] && (
