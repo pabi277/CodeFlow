@@ -14,7 +14,7 @@ export function templateCompletion(
 ): Completion {
   const cursorIdx = template.indexOf('$0')
   const apply = (view: EditorView, _c: Completion, from: number, to: number) => {
-    const insert = template.replace('$0', '')
+    const insert = template.replaceAll('$0', '')
     view.dispatch({
       changes: { from, to, insert },
       selection: cursorIdx >= 0
@@ -275,6 +275,49 @@ export const JAVA_COMPLETIONS: Completion[] = [
   templateCompletion('Set', 'Set<$0>', { type: 'type' }),
 ]
 
+// Focused templates for the additional executable languages. Native language
+// completion sources still contribute their own APIs; these add useful blocks.
+export const GO_COMPLETIONS: Completion[] = [
+  templateCompletion('main', 'package main\n\nimport "fmt"\n\nfunc main() {\n\t$0\n}', { detail: 'Go program' }),
+  templateCompletion('func', 'func $0() {\n\t\n}'),
+  templateCompletion('if', 'if $0 {\n\t\n}'),
+  templateCompletion('for', 'for $0 {\n\t\n}'),
+  templateCompletion('for range', 'for i, value := range $0 {\n\t_ = i\n\t_ = value\n}'),
+  templateCompletion('error check', 'if err != nil {\n\treturn $0\n}', { detail: 'idiomatic error handling' }),
+  templateCompletion('fmt.Println', 'fmt.Println($0)', { type: 'function', detail: 'fmt' }),
+]
+
+export const RUST_COMPLETIONS: Completion[] = [
+  templateCompletion('main', 'fn main() {\n    $0\n}', { detail: 'Rust program' }),
+  templateCompletion('fn', 'fn $0() {\n    \n}'),
+  templateCompletion('if let', 'if let Some(value) = $0 {\n    \n}'),
+  templateCompletion('match', 'match $0 {\n    Some(value) => value,\n    None => return,\n}'),
+  templateCompletion('println!', 'println!("{}", $0);', { type: 'function', detail: 'macro' }),
+  templateCompletion('derive', '#[derive(Debug, Clone)]\n$0', { detail: 'attribute' }),
+]
+
+export const PHP_COMPLETIONS: Completion[] = [
+  templateCompletion('php', '<?php\n\n$0\n', { detail: 'PHP file' }),
+  templateCompletion('function', 'function $0(): void\n{\n    \n}'),
+  templateCompletion('foreach', 'foreach ($0 as $item) {\n    \n}'),
+  templateCompletion('echo', 'echo $0;'),
+  templateCompletion('class', 'class $0\n{\n    \n}'),
+]
+
+export const SHELL_COMPLETIONS: Completion[] = [
+  templateCompletion('shebang', '#!/usr/bin/env bash\n\nset -euo pipefail\n\n$0', { detail: 'safe Bash script' }),
+  templateCompletion('if', 'if [[ $0 ]]; then\n  \nfi'),
+  templateCompletion('for', 'for item in $0; do\n  \ndone'),
+  templateCompletion('function', '$0() {\n  \n}'),
+]
+
+export const SQL_COMPLETIONS: Completion[] = [
+  templateCompletion('select', 'SELECT $0\nFROM table_name\nWHERE condition;'),
+  templateCompletion('insert', 'INSERT INTO table_name ($0)\nVALUES ();'),
+  templateCompletion('update', 'UPDATE table_name\nSET $0\nWHERE condition;'),
+  templateCompletion('create table', 'CREATE TABLE $0 (\n  id INTEGER PRIMARY KEY\n);'),
+]
+
 // Map language -> template completions (rich quick-fill)
 export const TEMPLATE_COMPLETIONS_BY_LANG: Record<string, Completion[]> = {
   python: PYTHON_COMPLETIONS,
@@ -283,6 +326,11 @@ export const TEMPLATE_COMPLETIONS_BY_LANG: Record<string, Completion[]> = {
   c: C_COMPLETIONS,
   cpp: CPP_COMPLETIONS,
   java: JAVA_COMPLETIONS,
+  go: GO_COMPLETIONS,
+  rust: RUST_COMPLETIONS,
+  php: PHP_COMPLETIONS,
+  shell: SHELL_COMPLETIONS,
+  sql: SQL_COMPLETIONS,
 }
 
 // ---------------------------------------------------------------------------

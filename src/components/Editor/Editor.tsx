@@ -18,7 +18,7 @@ import { linkedEditing } from '../../editor/linkedEditing'
 import { formatOnPaste } from '../../editor/pasteIndent'
 import { cIndent } from '../../editor/cIndent'
 import { indentOnInput, bracketMatching, foldGutter, foldKeymap, indentUnit } from '@codemirror/language'
-import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion } from '@codemirror/autocomplete'
+import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, acceptCompletion, type Completion } from '@codemirror/autocomplete'
 import { searchKeymap, search } from '@codemirror/search'
 import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { getCompletionSourceForLanguage } from '../../editor/completions/index'
@@ -40,6 +40,42 @@ import { debounce } from '../../utils/debounce'
 import { VscCode } from 'react-icons/vsc'
 import { Minimap } from './Minimap'
 import { StickyScroll } from './StickyScroll'
+
+function completionSection(completion: Completion): string {
+  return typeof completion.section === 'string' ? completion.section : completion.section?.name || ''
+}
+
+function completionExtensions(language: string) {
+  const source = getCompletionSourceForLanguage(language)
+  return [
+    // Compose our project-aware source with native language sources instead of
+    // `override`-ing them. This restores rich HTML/CSS/SQL language suggestions.
+    EditorState.languageData.of(() => [{ autocomplete: source }]),
+    autocompletion({
+      defaultKeymap: false,
+      activateOnTyping: true,
+      activateOnTypingDelay: 75,
+      selectOnOpen: true,
+      maxRenderedOptions: 12,
+      closeOnBlur: true,
+      aboveCursor: false,
+      tooltipClass: () => 'codeflow-intellisense',
+      optionClass: (completion) => `completion-${(completion.type || 'text').split(' ')[0]}`,
+      addToOptions: [{
+        position: 90,
+        render(completion) {
+          const sourceLabel = completionSection(completion)
+          if (!sourceLabel) return null
+          const badge = document.createElement('span')
+          badge.className = 'cm-completionSource'
+          badge.textContent = sourceLabel
+          return badge
+        },
+      }],
+      positionInfo: () => ({ class: 'codeflow-intellisense-info' }),
+    }),
+  ]
+}
 
 export function Editor() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -186,16 +222,7 @@ export function Editor() {
           ]),
           multiCursorExtensions,
           search({ top: false }),
-          completionComp.current.of(
-            autocompletion({
-              override: [getCompletionSourceForLanguage('plain')],
-              defaultKeymap: false,
-              activateOnTyping: true,
-              maxRenderedOptions: 8,
-              closeOnBlur: true,
-              aboveCursor: true,
-            }),
-          ),
+          completionComp.current.of(completionExtensions('plain')),
           langComp.current.of([]),
           themeComp.current.of(editorExtensionsForPalette(resolvePalette(settings.themePreset, settings.customThemes))),
           lineNumComp.current.of([]),
@@ -270,15 +297,19 @@ export function Editor() {
     }
   }, [activeTabId, nodeMap])
 
-  // Reconfigure language + completion source when the active file changes
+  // Keep import and workspace-symbol completion aware of project changes.
   const activePath = activeTabId ? nodeMap[activeTabId]?.path : undefined
+  useEffect(() => {
+    const files = Object.values(nodeMap)
+      .filter((node) => node.type === 'file')
+      .map((node) => ({ path: node.path, name: node.name, content: node.content }))
+    setProjectIndex(activePath || '', files)
+  }, [activePath, nodeMap])
+
+  // Reconfigure language + completion source when the active file changes.
   useEffect(() => {
     let cancelled = false
     const lang = activePath ? detectLanguage(activePath) : 'plain'
-    const files = Object.values(nodeMap)
-      .filter((n) => n.type === 'file')
-      .map((n) => ({ path: n.path, name: n.name }))
-    setProjectIndex(activePath || '', files)
     loadLanguageExtension(lang).then((ext) => {
       const view = viewRef.current
       if (cancelled || !view) return
@@ -287,16 +318,7 @@ export function Editor() {
     const view = viewRef.current
     if (view) {
       view.dispatch({
-        effects: completionComp.current.reconfigure(
-          autocompletion({
-            override: [getCompletionSourceForLanguage(lang)],
-            defaultKeymap: false,
-            activateOnTyping: true,
-            maxRenderedOptions: 8,
-            closeOnBlur: true,
-            aboveCursor: true,
-          }),
-        ),
+        effects: completionComp.current.reconfigure(completionExtensions(lang)),
       })
     }
     return () => {

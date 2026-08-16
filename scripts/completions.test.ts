@@ -8,6 +8,9 @@ import {
   templateCompletion,
 } from '../src/editor/completions/keywordCompletions'
 import { EditorState } from '@codemirror/state'
+import { CompletionContext } from '@codemirror/autocomplete'
+import { getCompletionSourceForLanguage } from '../src/editor/completions'
+import { setProjectIndex } from '../src/editor/completions/projectIndex'
 
 let pass = 0
 let fail = 0
@@ -89,6 +92,7 @@ static int count = 0;
   ok(!!includeC && typeof includeC.apply === 'function', 'include is a template')
   ok(KEYWORDS_BY_LANG.c.some((k) => k.label === 'restrict'), 'C keyword list has restrict')
   ok(KEYWORDS_BY_LANG.c.some((k) => k.label === 'snprintf'), 'C libc list has snprintf')
+  ok(!KEYWORDS_BY_LANG.c.some((k) => k.label === 'gets'), 'C11 autocomplete does not suggest unsafe removed gets()')
 
   console.log('\n[java quick-fill templates]')
   ok(has(JAVA_COMPLETIONS, 'System.out.println'), 'java has System.out.println')
@@ -110,6 +114,32 @@ static int count = 0;
   }
   applyOf(tpl)(view, tpl, 0, 3)
   ok(applied === 'printf("");', `template inserts 'printf("");' (got '${applied}')`)
+
+  console.log('\n[workspace IntelliSense]')
+  setProjectIndex('/src/main.ts', [
+    { path: '/src/main.ts', name: 'main.ts', content: 'cons' },
+    { path: '/src/math.ts', name: 'math.ts', content: 'export function calculateTotal(value: number) { return value }' },
+  ])
+  const source = getCompletionSourceForLanguage('typescript')
+  const completionState = EditorState.create({ doc: 'calc' })
+  const completionResult = source(new CompletionContext(completionState, 4, false))
+  ok(!!completionResult?.options.some((entry) => entry.label === 'calculateTotal'), 'suggests symbols from sibling project files')
+  const explicitState = EditorState.create({ doc: '' })
+  const explicitResult = source(new CompletionContext(explicitState, 0, true))
+  ok(!!explicitResult?.options.some((entry) => entry.label === 'console'), 'Ctrl+Space works at an empty cursor')
+  const memberState = EditorState.create({ doc: 'items.' })
+  const memberResult = source(new CompletionContext(memberState, 6, false))
+  ok(!!memberResult?.options.some((entry) => entry.label === 'map'), 'member completion opens immediately after a dot')
+
+  console.log('\n[more languages]')
+  ok(KEYWORDS_BY_LANG.go.some((k) => k.label === 'func'), 'Go keywords are available')
+  ok(KEYWORDS_BY_LANG.rust.some((k) => k.label === 'impl'), 'Rust keywords are available')
+  ok(KEYWORDS_BY_LANG.php.some((k) => k.label === 'foreach'), 'PHP keywords are available')
+  ok(KEYWORDS_BY_LANG.sql.some((k) => k.label === 'SELECT'), 'SQL keywords are available')
+  const go = extractLocalSymbols('func calculate(a int) int {\n  result := a\n  return result\n}', 'go')
+  ok(labels(go).includes('calculate'), 'Go local function is indexed')
+  const rust = extractLocalSymbols('struct User { id: u64 }\nfn load_user(id: u64) { let result = id; }', 'rust')
+  ok(labels(rust).includes('User') && labels(rust).includes('load_user'), 'Rust functions and types are indexed')
 
   console.log('\n[keyword lists sanity]')
   ok(KEYWORDS_BY_LANG.python.some((k) => k.label === 'print'), 'python keyword list has print')
