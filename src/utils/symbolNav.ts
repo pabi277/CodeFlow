@@ -36,14 +36,16 @@ export function wordAt(content: string, line: number, col: number): string | nul
 
 export function collectFileSymbols(file: ProjectFile): SymbolHit[] {
   const lang = detectLanguage(file.path)
-  return extractLocalSymbols(file.content, lang).map((s) => ({
-    fileId: file.id,
-    path: file.path,
-    name: s.name,
-    type: s.type,
-    line: s.line,
-    col: 1,
-  }))
+  return extractLocalSymbols(file.content, lang)
+    .filter((symbol) => symbol.kind !== 'import' && symbol.kind !== 'parameter')
+    .map((symbol) => ({
+      fileId: file.id,
+      path: file.path,
+      name: symbol.name,
+      type: symbol.type,
+      line: symbol.line,
+      col: 1,
+    }))
 }
 
 export function collectWorkspaceSymbols(files: ProjectFile[]): SymbolHit[] {

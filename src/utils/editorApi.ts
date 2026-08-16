@@ -1,8 +1,8 @@
 import { EditorSelection, Transaction } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
-import { undo, redo, addCursorBelow, selectParentSyntax } from '@codemirror/commands'
+import { undo, redo, addCursorBelow, selectParentSyntax, indentWithTab } from '@codemirror/commands'
 import { openSearchPanel, selectNextOccurrence } from '@codemirror/search'
-import { snippet, startCompletion } from '@codemirror/autocomplete'
+import { insertBracket, snippet, startCompletion } from '@codemirror/autocomplete'
 import { expandEmmetInEditor } from '../editor/emmetExpand'
 import { wordAt } from './symbolNav'
 import { toCmSnippet } from './snippets'
@@ -20,7 +20,14 @@ export function getEditor(): EditorView | null {
 
 export function insertText(text: string) {
   if (!view) return
-  view.dispatch(view.state.replaceSelection(text))
+  // Toolbar input bypasses CodeMirror's normal DOM typing path. Route single
+  // brackets through the close-bracket helper so `(` inserts `()` and tapping
+  // `)` in front of an auto-closed bracket moves over it instead of duplicating.
+  const bracket = text.length === 1 && `()[]{}'"\``.includes(text)
+    ? insertBracket(view.state, text)
+    : null
+  if (bracket) view.dispatch(bracket)
+  else view.dispatch(view.state.replaceSelection(text))
   view.focus()
 }
 
@@ -60,7 +67,11 @@ export function redoAction() {
 }
 
 export function indentAtCursor() {
-  insertText('  ')
+  if (!view) return
+  // Use the active indentUnit (2/4/8 spaces or a tab), including .editorconfig
+  // and auto-detected indentation, rather than the old hard-coded two spaces.
+  indentWithTab.run?.(view)
+  view.focus()
 }
 
 export function openFind() {

@@ -192,6 +192,21 @@ async function main() {
   ok(useStore.getState().openTabs[0] === recent.ids['one.txt'], 'restored tabs belong to the restored project')
   ok(useStore.getState().pinnedTabs.includes(recent.ids['one.txt']), 'pinned tabs restored per project')
 
+  console.log('\n[9] upload existing files directly into a selected folder')
+  const uploadProject = await makeProject('uploads', [{ path: 'src/existing.txt', content: 'old\n' }])
+  setStoreProject(uploadProject.project.id)
+  const uploadMap = await reloadNodeMap(uploadProject.project.id)
+  const srcFolder = Object.values(uploadMap).find((node) => node.type === 'folder' && node.path === '/src')
+  const uploaded = await useStore.getState().uploadFilesToFolder(srcFolder!.id, [
+    new File(['hello\n'], 'hello.txt', { type: 'text/plain' }),
+    new File(['export const answer = 42;\n'], 'answer.ts', { type: 'text/typescript' }),
+  ])
+  const afterUpload = await fsDb.listAllInProject(uploadProject.project.id)
+  ok(uploaded === 2, 'folder upload reports both created files')
+  ok(afterUpload.some((node) => node.path === '/src/hello.txt' && node.content === 'hello\n'), 'uploaded text file is stored inside the chosen folder')
+  ok(afterUpload.some((node) => node.path === '/src/answer.ts'), 'multiple selected files keep the chosen folder destination')
+  ok(useStore.getState().expanded[srcFolder!.id] === true, 'destination folder expands after upload')
+
   await db.delete()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)
   process.exit(fail ? 1 : 0)

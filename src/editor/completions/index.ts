@@ -1,42 +1,107 @@
-import { CompletionContext, type Completion, type CompletionResult } from '@codemirror/autocomplete'
-import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS, C_MEMBERS } from './keywords'
-import { TEMPLATE_COMPLETIONS_BY_LANG, symbolPairCompletion } from './keywordCompletions'
+import { insertCompletionText, type CompletionContext, type Completion, type CompletionResult } from '@codemirror/autocomplete'
+import { EditorSelection } from '@codemirror/state'
+import { C_SYSTEM_HEADERS } from '../cLanguage'
+import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS, C_MEMBERS, type CompletionEntry } from './keywords'
+import { TEMPLATE_COMPLETIONS_BY_LANG } from './keywordCompletions'
 import { extractLocalSymbols, localSymbolsToEntries } from './localSymbols'
-import { getProjectIndex } from './projectIndex'
+import { getImportedModuleMembers, getProjectIndex, getProjectLanguageSource, getProjectSymbols } from './projectIndex'
 import { matchImportContext, suggestImportPaths } from '../../utils/importPaths'
+import { completionSyntaxContext, documentWordCompletions, receiverBeforeMember } from './context'
+import { memberCompletions } from './memberCompletions'
 
-// Cache plain keyword completions per language
+const TYPE_BOOST: Record<string, number> = {
+  variable: 8, function: 7, class: 7, type: 6, constant: 5, member: 5, keyword: 1,
+}
+
 const keywordCache = new Map<string, Completion[]>()
-function keywordsFor(lang: string): Completion[] {
-  let list = keywordCache.get(lang)
-  if (!list) {
-    list = (KEYWORDS_BY_LANG[lang] || []).map((e) => ({
-      label: e.label,
-      type: e.type,
-      detail: e.detail,
-      boost: TYPE_BOOST[e.type] || 1,
-      displayLabel: `${TYPE_GLYPH[e.type] || '·'} ${e.label}`,
-    }))
-    keywordCache.set(lang, list)
-  }
+function keywordsFor(language: string): Completion[] {
+  let list = keywordCache.get(language)
+  if (list) return list
+  list = (KEYWORDS_BY_LANG[language] || []).map((entry) => completionFromEntry(entry, 'Language', TYPE_BOOST[entry.type] || 1))
+  keywordCache.set(language, list)
   return list
 }
 
-const TYPE_BOOST: Record<string, number> = {
-  variable: 1.3, function: 1.15, class: 1.1, keyword: 1.0, member: 0.9, type: 1.0,
+function completionFromEntry(entry: CompletionEntry, section: string, boost: number): Completion {
+  const callable = entry.type === 'function'
+  return {
+    label: entry.label,
+    type: entry.type === 'member' ? 'property' : entry.type,
+    detail: entry.detail,
+    info: entry.info || (entry.detail ? `${entry.label} — ${entry.detail}` : undefined),
+    boost,
+    section,
+    commitCharacters: callable ? ['('] : undefined,
+    apply: callable
+      ? (view, _completion, from, to) => {
+          const alreadyOpen = view.state.sliceDoc(to, to + 1) === '('
+          const text = alreadyOpen ? entry.label : `${entry.label}()`
+          const transaction = insertCompletionText(view.state, text, from, to)
+          view.dispatch({
+            ...transaction,
+            selection: EditorSelection.cursor(from + entry.label.length + (alreadyOpen ? 0 : 1)),
+          })
+        }
+      : undefined,
+  }
 }
-const TYPE_GLYPH: Record<string, string> = {
-  function: 'ƒ', class: 'C', type: 'T', keyword: 'k', variable: '·', member: '·',
+
+function unique(options: Completion[]): Completion[] {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    const key = `${option.label}:${option.type || ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function cHeaderCompletion(context: CompletionContext, language: string): CompletionResult | null {
+  if (language !== 'c' && language !== 'cpp') return null
+  const line = context.state.doc.lineAt(context.pos)
+  const before = line.text.slice(0, context.pos - line.from)
+  const system = before.match(/^\s*#\s*include\s*<([^>]*)$/)
+  if (system) {
+    return {
+      from: context.pos - system[1].length,
+      options: C_SYSTEM_HEADERS.map((header) => ({
+        label: header,
+        type: 'text',
+        detail: 'C standard header',
+        apply: `${header}>`,
+        boost: 5,
+      })),
+      validFor: /^[\w./-]*$/,
+    }
+  }
+  const local = before.match(/^\s*#\s*include\s*"([^"]*)$/)
+  if (!local) return null
+  const { currentPath, files } = getProjectIndex()
+  const paths = suggestImportPaths(currentPath, local[1], files.filter((f) => /\.(?:h|hpp|hh)$/i.test(f.path)), 'js')
+  return paths.length ? {
+    from: context.pos - local[1].length,
+    options: paths.map((path) => ({ label: path, apply: `${path}"`, type: 'text', detail: 'project header', boost: 8 })),
+    validFor: /^[\w./-]*$/,
+  } : null
 }
 
 /**
- * Build a CodeMirror completion source for a given logical language key.
- * Combines: rich template snippets, plain keywords, locally-defined symbols,
- * member completions after ".", and symbol-pair suggestions.
+ * IntelliSense-style completion source. It composes snippets, local and sibling
+ * file symbols, language APIs, member suggestions, imports, and C headers.
+ * CodeMirror performs fuzzy filtering, so `cnsl` can match `console` like VS Code.
  */
 export function getCompletionSourceForLanguage(language: string) {
   const templates = TEMPLATE_COMPLETIONS_BY_LANG[language] || []
   const plainKeywords = keywordsFor(language)
+  let cachedCode = ''
+  let cachedLocals: CompletionEntry[] = []
+  const localsFor = (code: string) => {
+    if (code !== cachedCode) {
+      cachedCode = code
+      cachedLocals = localSymbolsToEntries(extractLocalSymbols(code, language))
+    }
+    return cachedLocals
+  }
   const memberSet = ['javascript', 'typescript'].includes(language)
     ? JS_OBJECT_MEMBERS
     : language === 'c' || language === 'cpp'
@@ -44,60 +109,66 @@ export function getCompletionSourceForLanguage(language: string) {
       : []
 
   return (context: CompletionContext): CompletionResult | null => {
-    // Symbol pair suggestions (type "(" → suggest "()")
-    const pairOptions = symbolPairCompletion(context)
-    if (pairOptions && pairOptions.length) {
-      const before = context.matchBefore(/[({["'`]/)!
-      return { from: before.from, options: pairOptions, validFor: /^$/ }
-    }
+    const header = cHeaderCompletion(context, language)
+    if (header) return header
 
     const line = context.state.doc.lineAt(context.pos)
-    const importHit = matchImportContext(line.text.slice(0, context.pos - line.from))
+    const beforeCursor = line.text.slice(0, context.pos - line.from)
+    const importHit = matchImportContext(beforeCursor)
     if (importHit) {
       const { currentPath, files } = getProjectIndex()
       const paths = suggestImportPaths(currentPath, importHit.prefix, files, importHit.style)
       if (paths.length) {
         return {
           from: line.from + importHit.from,
-          options: paths.map((p) => ({ label: p, type: 'text', boost: 2, detail: 'file' })),
+          options: paths.map((path) => ({ label: path, type: 'text', boost: 20, detail: 'project file', section: 'Files' })),
           validFor: /^[\w./-]*$/,
         }
       }
     }
 
-    const word = context.matchBefore(/\w+/)
+    // Import/header strings were handled above. Everywhere else, avoid the
+    // distracting keyword popup while writing prose, comments, and literals.
+    if (completionSyntaxContext(context.state, context.pos, language) !== 'code') return null
+
+    const word = context.matchBefore(/[\w$]*/)
     if (!word) return null
-    if (word.from === word.to && !context.explicit) return null
-
-    const before = context.state.sliceDoc(Math.max(0, word.from - 1), word.from)
+    const sigilWord = (language === 'php' || language === 'shell' || language === 'perl') && word.text.startsWith('$')
+    const completionFrom = sigilWord ? word.from + 1 : word.from
+    const charBefore = context.state.sliceDoc(Math.max(0, word.from - 1), word.from)
     const arrow = context.state.sliceDoc(Math.max(0, word.from - 2), word.from) === '->'
+    const member = charBefore === '.' || arrow
+    if (word.from === word.to && !context.explicit && !member) return null
 
+    const code = context.state.doc.toString()
+    const locals = localsFor(code)
     let options: Completion[]
-    if (before === '.' || arrow) {
-      const locals = language === 'c'
-        ? localSymbolsToEntries(extractLocalSymbols(context.state.doc.toString(), language))
-          .filter((e) => e.type === 'variable' || e.type === 'type')
-        : []
+
+    if (member) {
+      const receiver = receiverBeforeMember(context.state, word.from)
+      const typeSource = language === 'c' || language === 'cpp'
+        ? `${code}\n${getProjectLanguageSource(language)}`
+        : code
+      const imported = getImportedModuleMembers(receiver, language, code)
+      const inferred = memberCompletions(language, receiver, typeSource)
       options = [
-        ...locals.map((e) => ({ label: e.label, type: e.type, boost: 1.2 })),
-        ...memberSet.map((e) => ({ label: e.label, type: e.type, detail: e.detail, boost: 1.1 })),
+        ...imported.map((entry) => completionFromEntry(entry, `Import · ${receiver}`, 18)),
+        ...inferred.map((entry) => completionFromEntry(entry, receiver || 'Members', 12)),
+        ...memberSet.map((entry) => completionFromEntry(entry, 'Members', 5)),
+        ...locals.filter((entry) => entry.type === 'variable').map((entry) => completionFromEntry(entry, 'Local', 2)),
       ]
     } else {
-      const code = context.state.doc.toString()
-      const locals = localSymbolsToEntries(extractLocalSymbols(code, language))
-        .map((e) => ({ label: e.label, type: e.type, boost: TYPE_BOOST[e.type] || 1 }))
-      options = [...locals, ...templates, ...plainKeywords]
+      const localOptions = locals.map((entry) => completionFromEntry(entry, 'Local', TYPE_BOOST[entry.type] || 8))
+      const projectOptions = getProjectSymbols(language)
+        .map((entry) => completionFromEntry(entry, 'Workspace', 4))
+      const snippetOptions = templates.map((option) => ({ ...option, section: 'Snippets', boost: option.boost ?? 3 }))
+      const known = new Set([...localOptions, ...projectOptions, ...snippetOptions, ...plainKeywords].map((option) => option.label))
+      const words = documentWordCompletions(context.state, word.text, known)
+      options = [...localOptions, ...projectOptions, ...snippetOptions, ...plainKeywords, ...words]
     }
 
-    const prefix = word.text.toLowerCase()
-    const scored = options
-      .filter((o) => o.label.toLowerCase().startsWith(prefix))
-      .map((o) => ({ o, s: (o.label.startsWith(word.text) ? 10 : 5) + (o.boost || 1) }))
-      .sort((a, b) => b.s - a.s)
-      .map((x) => x.o)
-      .slice(0, 50)
-
-    if (!scored.length) return null
-    return { from: word.from, options: scored, validFor: /^\w*$/ }
+    options = unique(options).slice(0, 400)
+    if (!options.length) return null
+    return { from: completionFrom, options, validFor: sigilWord ? /^\w*$/ : /^[\w$]*$/ }
   }
 }

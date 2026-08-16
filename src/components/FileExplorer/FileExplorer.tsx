@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { MdExpandMore } from 'react-icons/md'
-import { AiOutlineSearch, AiOutlinePlus } from 'react-icons/ai'
+import { AiOutlineCloudUpload, AiOutlinePlus, AiOutlineSearch } from 'react-icons/ai'
 import { FiMoreVertical } from 'react-icons/fi'
 import type { FileNode } from '../../types'
 import { FileIcon } from '../Shared/FileIcon'
@@ -22,6 +22,7 @@ export function FileExplorer() {
   const setNewItemModal = useStore((s) => s.setNewItemModal)
   const openContextMenu = useStore((s) => s.openContextMenu)
   const moveNode = useStore((s) => s.moveNode)
+  const uploadFilesToFolder = useStore((s) => s.uploadFilesToFolder)
   const [query, setQuery] = useState('')
 
   const rootIds = useMemo(() => {
@@ -112,13 +113,21 @@ export function FileExplorer() {
           draggable
           onDragStart={(e) => { e.dataTransfer.setData('text/node-id', nodeId); e.dataTransfer.effectAllowed = 'move' }}
           onDragOver={(e) => {
-            if (isFolder) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
+            if (isFolder) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = e.dataTransfer.files?.length ? 'copy' : 'move'
+            }
           }}
           onDrop={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            if (!isFolder) return
+            if (e.dataTransfer.files?.length) {
+              void uploadFilesToFolder(nodeId, e.dataTransfer.files)
+              return
+            }
             const from = e.dataTransfer.getData('text/node-id')
-            if (from && isFolder && from !== nodeId) void moveNode(from, nodeId)
+            if (from && from !== nodeId) void moveNode(from, nodeId)
           }}
           onContextMenu={(e) => { e.preventDefault(); openMenu(nodeId, e.clientX, e.clientY) }}
           onClick={() => (isFolder ? toggleFolder(nodeId) : openFile(nodeId))}
@@ -142,8 +151,18 @@ function NewItemModal() {
   const modal = useStore((s) => s.newItemModal)
   const setModal = useStore((s) => s.setNewItemModal)
   const createNode = useStore((s) => s.createNode)
+  const uploadFilesToFolder = useStore((s) => s.uploadFilesToFolder)
+  const uploadRef = useRef<HTMLInputElement>(null)
   const [type, setType] = useState<'file' | 'folder'>('file')
   const [name, setName] = useState('')
+
+  // Every launcher supplies an explicit intended type. Reset the sheet from
+  // that value instead of retaining the previous File/Folder toggle selection.
+  useEffect(() => {
+    if (!modal) return
+    setType(modal.type)
+    setName('')
+  }, [modal])
 
   const submit = async () => {
     if (!name.trim() || !modal) return
@@ -158,6 +177,29 @@ function NewItemModal() {
         <div className="mb-3 flex gap-2">
           <button onClick={() => setType('file')} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${type === 'file' ? 'bg-accent text-white' : 'bg-input text-ink'}`}>File</button>
           <button onClick={() => setType('folder')} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${type === 'folder' ? 'bg-accent text-white' : 'bg-input text-ink'}`}>Folder</button>
+        </div>
+        <input
+          ref={uploadRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={async (event) => {
+            const files = event.target.files
+            if (files?.length && modal) {
+              const created = await uploadFilesToFolder(modal.parentId, files)
+              if (created) setModal(null)
+            }
+            event.target.value = ''
+          }}
+        />
+        <button
+          onClick={() => uploadRef.current?.click()}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-4 py-2.5 text-[13px] font-medium text-accent active:bg-accent/20"
+        >
+          <AiOutlineCloudUpload size={18} /> Upload existing file{modal?.parentId ? ' into this folder' : ''}
+        </button>
+        <div className="mb-2 flex items-center gap-3 text-[10px] uppercase tracking-wider text-ink-muted">
+          <span className="h-px flex-1 bg-border/60" /> or create a new item <span className="h-px flex-1 bg-border/60" />
         </div>
         <input
           autoFocus

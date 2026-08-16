@@ -4,6 +4,7 @@ import { DEFAULT_TOOLBAR_KEYS } from '../config/defaults'
 import { insertText, moveCursorLeft, moveCursorRight, undoAction, redoAction, indentAtCursor, triggerCompletion, selectNextMatch, expandEmmet } from '../utils/editorApi'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { VscSymbolMethod } from 'react-icons/vsc'
+import { useHorizontalScrollClickGuard } from '../hooks/useHorizontalScrollClickGuard'
 
 export function KeyboardToolbar() {
   const show = useStore((s) => s.settings.showKeyboardToolbar)
@@ -12,6 +13,7 @@ export function KeyboardToolbar() {
   const nodeMap = useStore((s) => s.nodeMap)
 
   const kbHeight = useKeyboardHeight()
+  const scrollGuard = useHorizontalScrollClickGuard(8)
   const node = activeTabId ? nodeMap[activeTabId] : undefined
   if (!show) return null
   // On phones the toolbar sits on the home-gesture strip. Only show it while
@@ -45,13 +47,15 @@ export function KeyboardToolbar() {
           above don't hide behind the fixed toolbar */}
       <div aria-hidden className="shrink-0" style={{ height: 60 + kbHeight }} />
       <div
+        {...scrollGuard}
         className="bar-glass fixed inset-x-0 z-40 flex items-center gap-1 overflow-x-auto border-t border-border/50 px-2 py-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.18)] transition-[bottom] duration-150 [scrollbar-width:none]"
-        style={{ bottom: kbHeight, scrollbarWidth: 'none', paddingBottom: 'max(10px, env(safe-area-inset-bottom, 0px))' }}
+        style={{ bottom: kbHeight, scrollbarWidth: 'none', paddingBottom: 'max(10px, env(safe-area-inset-bottom, 0px))', touchAction: 'pan-x' }}
       >
       <button
-        onPointerDown={(e) => { e.preventDefault(); triggerCompletion() }}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => triggerCompletion()}
         className="icon-tile mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white transition-transform duration-100 active:scale-95"
-        style={{ touchAction: 'manipulation' }}
+        style={{ touchAction: 'pan-x' }}
         aria-label="Show suggestions"
       >
         <VscSymbolMethod size={18} />
@@ -61,11 +65,12 @@ export function KeyboardToolbar() {
         return (
           <button
             key={`${k}-${i}`}
-            onPointerDown={(e) => { e.preventDefault(); press(k) }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => press(k)}
             className={`kbd-key flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-2 text-[15px] ${
               special ? 'font-semibold text-accent' : 'text-ink'
             }`}
-            style={{ touchAction: 'manipulation' }}
+            style={{ touchAction: 'pan-x' }}
             aria-label={`Insert ${k}`}
           >
             {k}

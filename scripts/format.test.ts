@@ -2,6 +2,7 @@
  * Run with: npx tsx scripts/format.test.ts
  */
 import { formatDocument } from '../src/utils/formatDocument'
+import { cIndentAfterLines } from '../src/utils/formatC'
 
 let pass = 0
 let fail = 0
@@ -37,6 +38,10 @@ async function main() {
   ok(c.ok && c.text.includes('  int y;\n  y=6;\n  return 0;'), `C statements share one indent (got ${JSON.stringify(c.ok ? c.text : c.error)})`)
   const hash = await formatDocument(['  #include <stdio.h>', 'int main(){', 'int x;', '}', ''].join('\n'), 'c', 2)
   ok(hash.ok && hash.text.startsWith('#include'), 'preprocessor stays in column 0')
+  ok(cIndentAfterLines('    work();', 'if (ready)', 4) === 0, 'Enter dedents after a one-line if body')
+  ok(cIndentAfterLines('    work();', 'if (ready) {', 4) === 4, 'Enter keeps block indentation after a statement')
+  ok(cIndentAfterLines('if (ready) {', '', 4) === 4, 'Enter uses the configured four-space indent after an opening block')
+  ok(cIndentAfterLines('        work();', '', 4, true) === 4, 'closing bracket dedents one configured level')
 
   console.log('\n[whitespace]')
   const ws = await formatDocument('foo  \nbar\t\n\n\n', 'python', 2)

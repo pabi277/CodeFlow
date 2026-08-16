@@ -39,7 +39,7 @@ export const C_STDLIB: { label: string; header: string }[] = [
   { label: 'puts', header: 'stdio.h' },
   { label: 'putchar', header: 'stdio.h' },
   { label: 'getchar', header: 'stdio.h' },
-  { label: 'gets', header: 'stdio.h' },
+  // `gets` was removed in C11 because it cannot be used safely.
   { label: 'fgets', header: 'stdio.h' },
   { label: 'fputs', header: 'stdio.h' },
   { label: 'fopen', header: 'stdio.h' },

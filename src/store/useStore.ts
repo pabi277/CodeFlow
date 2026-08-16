@@ -38,7 +38,7 @@ import * as ghSvc from '../services/githubService'
 import * as snippetsDb from '../db/snippets'
 import { DEFAULT_SETTINGS } from '../config/defaults'
 import { downloadProjectZip, buildSubtreeZip, storedContentToBlob, parseZipFile, filesToEntries, entriesToSeed } from '../utils/zip'
-import { mimeForPath } from '../utils/binary'
+import { fileToStoredContent, mimeForPath } from '../utils/binary'
 import { diagnoseProject } from '../services/diagnostics'
 import { formatDocument } from '../utils/formatDocument'
 import { replaceInText } from '../utils/projectSearch'
@@ -281,6 +281,7 @@ interface StoreState {
   closeTab: (id: string) => Promise<void>
   setActiveTab: (id: string) => void
   createNode: (parentId: string | null, type: 'file' | 'folder', name: string) => Promise<FileNode | null>
+  uploadFilesToFolder: (parentId: string | null, files: FileList | File[]) => Promise<number>
   saveContent: (id: string, content: string) => void
   persistContent: (id: string) => Promise<void>
   flushDirtyTabs: () => Promise<void>
@@ -611,6 +612,44 @@ export const useStore = create<StoreState>((set, get) => ({
       get().showToast((err as Error).message, 'error')
       return null
     }
+  },
+
+  uploadFilesToFolder: async (parentId, files) => {
+    const pid = get().activeProjectId
+    if (!pid) return 0
+    const rootId = getRootNodeId(get().nodeMap)
+    const effectiveParent = parentId ?? rootId ?? null
+    const parent = effectiveParent ? get().nodeMap[effectiveParent] : undefined
+    if (effectiveParent && (!parent || parent.type !== 'folder')) {
+      get().showToast('Choose a folder before uploading files', 'error')
+      return 0
+    }
+
+    let created = 0
+    const errors: string[] = []
+    let lastFileId: string | null = null
+    for (const file of Array.from(files)) {
+      try {
+        if (!file.name) continue
+        if (file.size > fsDb.LIMITS.maxBytesPerFile) {
+          throw new Error(`${file.name} exceeds the 10 MB file limit`)
+        }
+        const content = await fileToStoredContent(file)
+        const node = await fsDb.createNode(pid, effectiveParent, file.name, 'file', content)
+        created++
+        lastFileId = node.id
+      } catch (err) {
+        errors.push((err as Error).message || `Could not upload ${file.name}`)
+      }
+    }
+
+    await get().refreshProject()
+    await get().refreshGitStatus()
+    if (effectiveParent) set((state) => ({ expanded: { ...state.expanded, [effectiveParent]: true } }))
+    if (lastFileId) await get().openFile(lastFileId)
+    if (created) get().showToast(`Uploaded ${created} file${created === 1 ? '' : 's'}${parent?.path && parent.path !== '/' ? ` to ${parent.path}` : ''}`, 'success')
+    if (errors.length) get().showToast(errors.length === 1 ? errors[0] : `${errors.length} files could not be uploaded`, 'warning')
+    return created
   },
 
   renameNode: async (id, newName) => {

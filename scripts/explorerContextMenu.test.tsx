@@ -5,7 +5,7 @@
 import 'fake-indexeddb/auto'
 import { JSDOM } from 'jsdom'
 import React from 'react'
-import { render, cleanup, fireEvent } from '@testing-library/react'
+import { act, render, cleanup, fireEvent } from '@testing-library/react'
 ;(global as any).React = React
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
 const g = global as any
@@ -58,6 +58,20 @@ async function main() {
   ok(labels.some((l) => l.includes('Change Path')), 'menu has Change Path / Move')
   ok(labels.some((l) => l.includes('Rename')), 'menu has Rename')
   ok(labels.some((l) => l.includes('Delete')), 'menu has Delete')
+
+  // Folder menu supports importing real device files at that exact location.
+  act(() => useStore.getState().closeContextMenu())
+  const rootMore = document.querySelector('button[aria-label="Options for proj1"]')
+  fireEvent.click(rootMore!)
+  const folderLabels = [...document.querySelectorAll('button')].map((b) => b.textContent || '')
+  ok(folderLabels.some((label) => label.includes('Upload File(s) Inside')), 'folder menu has Upload File(s) Inside')
+
+  // Opening a new-item action must reset the File/Folder choice every time.
+  const newFolder = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('New Folder Inside'))
+  fireEvent.click(newFolder!)
+  ok(!!document.querySelector('input[placeholder="folder name"]'), 'New Folder Inside opens with Folder selected')
+  act(() => useStore.getState().setNewItemModal({ parentId: 'root', type: 'file' }))
+  ok(!!document.querySelector('input[placeholder="e.g. index.js or main.py"]'), 'next New File action resets the previous Folder selection')
 
   cleanup()
   console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`)

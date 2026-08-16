@@ -1,10 +1,13 @@
 // Language keyword / builtin / common-API completion lists.
 import { C_KEYWORDS as C_KW, C_TYPES, C_PREPROCESSOR, C_STDLIB } from '../cLanguage'
+import { EXTRA_LANGUAGE_ENTRIES } from './languageCatalogs'
 
 export interface CompletionEntry {
   label: string
   type: 'keyword' | 'function' | 'type' | 'constant' | 'member' | 'variable'
   detail?: string
+  info?: string
+  origin?: 'local' | 'project' | 'language'
 }
 
 export const PYTHON_KEYWORDS: CompletionEntry[] = [
@@ -134,12 +137,62 @@ export const JAVA_APIS: CompletionEntry[] = [
   { label: 'put', type: 'member', detail: 'Map' },
 ]
 
-// Map logical language key -> combined keyword entries
+function words(values: string, type: CompletionEntry['type'] = 'keyword', detail?: string): CompletionEntry[] {
+  return values.split(/\s+/).filter(Boolean).map((label) => ({ label, type, detail, origin: 'language' }))
+}
+
+export const GO_ENTRIES: CompletionEntry[] = [
+  ...words('break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var'),
+  ...words('bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64 rune string uint uint8 uint16 uint32 uint64 uintptr', 'type'),
+  ...words('append cap close complex copy delete imag len make new panic print println real recover', 'function', 'builtin'),
+  ...words('true false nil iota', 'constant'),
+]
+
+export const RUST_ENTRIES: CompletionEntry[] = [
+  ...words('as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'),
+  ...words('bool char f32 f64 i8 i16 i32 i64 i128 isize str u8 u16 u32 u64 u128 usize String Vec Option Result Box', 'type'),
+  ...words('Some None Ok Err', 'constant'),
+  ...words('assert dbg drop format print println todo unreachable vec', 'function', 'macro'),
+]
+
+export const PHP_ENTRIES: CompletionEntry[] = [
+  ...words('abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile eval exit extends final finally fn for foreach function global goto if implements include include_once instanceof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield'),
+  ...words('bool int float string array object mixed void never iterable self parent', 'type'),
+  ...words('null true false', 'constant'),
+  ...words('count strlen array_map array_filter array_reduce json_encode json_decode explode implode trim in_array', 'function', 'PHP builtin'),
+]
+
+export const SHELL_ENTRIES: CompletionEntry[] = [
+  ...words('if then else elif fi for while until do done case esac function in select time coproc'),
+  ...words('echo printf read cd pwd export unset set shift source alias test trap wait', 'function', 'shell builtin'),
+  ...words('HOME PATH PWD USER SHELL', 'variable', 'environment'),
+]
+
+export const SQL_ENTRIES: CompletionEntry[] = [
+  ...words('SELECT FROM WHERE JOIN INNER LEFT RIGHT FULL OUTER ON AS INSERT INTO VALUES UPDATE SET DELETE CREATE ALTER DROP TABLE VIEW INDEX DISTINCT GROUP BY HAVING ORDER ASC DESC LIMIT OFFSET UNION ALL CASE WHEN THEN ELSE END WITH RECURSIVE PRIMARY KEY FOREIGN REFERENCES UNIQUE CHECK DEFAULT NULL NOT AND OR IN EXISTS BETWEEN LIKE IS'),
+  ...words('INTEGER REAL TEXT BLOB BOOLEAN DATE DATETIME VARCHAR DECIMAL', 'type'),
+  ...words('COUNT SUM AVG MIN MAX COALESCE NULLIF ROUND LOWER UPPER LENGTH SUBSTR', 'function', 'SQL function'),
+  ...words('NULL TRUE FALSE CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP', 'constant'),
+]
+
+// Map logical language key -> combined keyword entries. Languages with native
+// CodeMirror completion sources (HTML/CSS, for example) are composed with this
+// list by Editor.tsx rather than replaced.
 export const KEYWORDS_BY_LANG: Record<string, CompletionEntry[]> = {
   python: [...PYTHON_KEYWORDS, ...PYTHON_BUILTINS, ...PYTHON_MODULES],
   javascript: [...JS_KEYWORDS, ...JS_GLOBALS],
-  typescript: [...JS_KEYWORDS, ...JS_GLOBALS],
+  typescript: [
+    ...JS_KEYWORDS, ...JS_GLOBALS,
+    ...words('interface type enum namespace declare abstract implements keyof readonly satisfies infer unknown never any', 'keyword'),
+    ...words('string number boolean bigint symbol unknown never any void', 'type'),
+  ],
   c: [...C_KEYWORDS, ...C_FUNCTIONS],
   cpp: [...C_KEYWORDS, ...C_FUNCTIONS, ...CPP_EXTRA],
   java: [...JAVA_KEYWORDS, ...JAVA_APIS],
+  go: GO_ENTRIES,
+  rust: RUST_ENTRIES,
+  php: PHP_ENTRIES,
+  shell: SHELL_ENTRIES,
+  sql: SQL_ENTRIES,
+  ...EXTRA_LANGUAGE_ENTRIES,
 }
