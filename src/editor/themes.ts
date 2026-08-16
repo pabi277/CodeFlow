@@ -40,7 +40,8 @@ export function editorTheme(p: ThemePalette): ReturnType<typeof EditorView.theme
         boxShadow: p.dark ? '0 12px 34px rgba(0,0,0,.62), 0 2px 8px rgba(0,0,0,.38)' : '0 12px 32px rgba(31,35,40,.22), 0 2px 6px rgba(31,35,40,.12)',
       },
       '.codeflow-intellisense > ul': {
-        maxHeight: 'min(40vh, 340px)', overflowY: 'auto', fontFamily: 'var(--font-mono, ui-monospace, monospace)', padding: '3px 0',
+        maxHeight: 'min(40vh, 340px)', overflowY: 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y',
+        WebkitOverflowScrolling: 'touch', fontFamily: 'var(--font-mono, ui-monospace, monospace)', padding: '3px 0',
       },
       '.codeflow-intellisense ul li': {
         padding: '5px 8px', minHeight: '30px', display: 'flex', alignItems: 'center', gap: '4px', borderLeft: '2px solid transparent',

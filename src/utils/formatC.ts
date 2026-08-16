@@ -99,16 +99,29 @@ function scanLine(line: string, blockComment: boolean): { delta: number; blockCo
   return { delta, blockComment, wasCommentOnly: !code }
 }
 
-/** Indent (in columns) for a new line after `prev`, given current brace depth. */
+/** Indent (in columns) for a new line after `prev`. */
 export function cIndentAfterLine(prev: string, tabSize: number, nextStartsWithClose = false): number {
-  const width = Math.max(1, Math.min(8, tabSize || 2))
+  return cIndentAfterLines(prev, '', tabSize, nextStartsWithClose)
+}
+
+/**
+ * Context-aware Enter indentation for C/C++. In particular, leave a one-line
+ * `if`/`for` body after its first statement instead of carrying that temporary
+ * indent onto every following line.
+ */
+export function cIndentAfterLines(prev: string, beforePrev: string, tabSize: number, nextStartsWithClose = false): number {
+  const width = Math.max(1, Math.min(8, tabSize || 4))
   const scan = scanLine(prev, false)
   const trimmed = prev.trim()
-  let depth = 0
-  if (trimmed.endsWith('{') || trimmed.endsWith('(')) depth = 1
-  else if (scan.delta > 0) depth = 1
-  if (nextStartsWithClose) depth = Math.max(0, depth - 1)
   const base = (prev.match(/^[ \t]*/)?.[0] || '').replace(/\t/g, ' '.repeat(width)).length
-  const baseLevel = Math.round(base / width)
-  return Math.max(0, baseLevel + depth) * width
+  const beforeTrimmed = beforePrev.trim()
+  const beforeBase = (beforePrev.match(/^[ \t]*/)?.[0] || '').replace(/\t/g, ' '.repeat(width)).length
+  const oneLineControl = /^(?:if|for|while)\s*\([^{}]*\)\s*$|^else\s*$/.test(beforeTrimmed)
+
+  if (nextStartsWithClose) return trimmed.endsWith('{') || trimmed.endsWith('(') ? base : Math.max(0, base - width)
+  if (/^#/.test(trimmed)) return 0
+  if (oneLineControl && base > beforeBase) return beforeBase
+  if (trimmed.endsWith('{') || trimmed.endsWith('(') || scan.delta > 0) return base + width
+  if (/^(?:if|for|while|switch)\s*\([^{}]*\)\s*$|^else\s*$/.test(trimmed)) return base + width
+  return base
 }

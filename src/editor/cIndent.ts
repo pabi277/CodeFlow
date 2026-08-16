@@ -1,6 +1,6 @@
 import { indentService, indentUnit } from '@codemirror/language'
 import type { Extension } from '@codemirror/state'
-import { cIndentAfterLine } from '../utils/formatC'
+import { cIndentAfterLines } from '../utils/formatC'
 
 /** Brace-based indent so C statements in the same block share one column. */
 export function cIndent(): Extension {
@@ -8,16 +8,16 @@ export function cIndent(): Extension {
     const line = context.lineAt(pos)
     const lineNo = context.state.doc.lineAt(line.from).number
     let prevText = ''
+    let beforePrev = ''
     for (let n = lineNo - 1; n >= 1; n--) {
-      const t = context.state.doc.line(n).text
-      if (t.trim()) {
-        prevText = t
-        break
-      }
+      const text = context.state.doc.line(n).text
+      if (!text.trim()) continue
+      if (!prevText) prevText = text
+      else { beforePrev = text; break }
     }
     const unit = context.state.facet(indentUnit)
-    const tabSize = unit.startsWith('\t') ? 4 : Math.max(1, unit.length)
+    const tabSize = unit.startsWith('\t') ? context.state.tabSize : Math.max(1, unit.length)
     const nextClose = /^\s*[}\])]/.test(line.text)
-    return cIndentAfterLine(prevText, tabSize, nextClose)
+    return cIndentAfterLines(prevText, beforePrev, tabSize, nextClose)
   })
 }

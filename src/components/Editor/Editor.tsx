@@ -355,7 +355,12 @@ export function Editor() {
       if (fromEc.tabSize) tabSize = fromEc.tabSize
       if (fromEc.indentWithSpaces !== undefined) spaces = fromEc.indentWithSpaces
     }
-    const tabSizeExt = spaces ? indentUnit.of(' '.repeat(tabSize)) : EditorState.tabSize.of(tabSize)
+    // Always configure both visual tab width and the inserted indent unit. When
+    // switching to tabs, leaving indentUnit unset fell back to two spaces.
+    const tabSizeExt = [
+      EditorState.tabSize.of(tabSize),
+      indentUnit.of(spaces ? ' '.repeat(tabSize) : '\t'),
+    ]
     view.dispatch({ effects: indentComp.current.reconfigure(tabSizeExt) })
 
     const cursorShape = settings.cursorStyle === 'block' ? 'block' : settings.cursorStyle === 'underline' ? 'underline' : 'line'
