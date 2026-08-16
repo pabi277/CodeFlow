@@ -1,9 +1,10 @@
-import type { CompletionContext, Completion, CompletionResult } from '@codemirror/autocomplete'
+import { insertCompletionText, type CompletionContext, type Completion, type CompletionResult } from '@codemirror/autocomplete'
+import { EditorSelection } from '@codemirror/state'
 import { C_SYSTEM_HEADERS } from '../cLanguage'
 import { KEYWORDS_BY_LANG, JS_OBJECT_MEMBERS, C_MEMBERS, type CompletionEntry } from './keywords'
 import { TEMPLATE_COMPLETIONS_BY_LANG } from './keywordCompletions'
 import { extractLocalSymbols, localSymbolsToEntries } from './localSymbols'
-import { getProjectIndex, getProjectSymbols } from './projectIndex'
+import { getImportedModuleMembers, getProjectIndex, getProjectLanguageSource, getProjectSymbols } from './projectIndex'
 import { matchImportContext, suggestImportPaths } from '../../utils/importPaths'
 import { completionSyntaxContext, documentWordCompletions, receiverBeforeMember } from './context'
 import { memberCompletions } from './memberCompletions'
@@ -22,6 +23,7 @@ function keywordsFor(language: string): Completion[] {
 }
 
 function completionFromEntry(entry: CompletionEntry, section: string, boost: number): Completion {
+  const callable = entry.type === 'function'
   return {
     label: entry.label,
     type: entry.type === 'member' ? 'property' : entry.type,
@@ -29,7 +31,18 @@ function completionFromEntry(entry: CompletionEntry, section: string, boost: num
     info: entry.info || (entry.detail ? `${entry.label} — ${entry.detail}` : undefined),
     boost,
     section,
-    commitCharacters: entry.type === 'function' ? ['('] : undefined,
+    commitCharacters: callable ? ['('] : undefined,
+    apply: callable
+      ? (view, _completion, from, to) => {
+          const alreadyOpen = view.state.sliceDoc(to, to + 1) === '('
+          const text = alreadyOpen ? entry.label : `${entry.label}()`
+          const transaction = insertCompletionText(view.state, text, from, to)
+          view.dispatch({
+            ...transaction,
+            selection: EditorSelection.cursor(from + entry.label.length + (alreadyOpen ? 0 : 1)),
+          })
+        }
+      : undefined,
   }
 }
 
@@ -133,8 +146,13 @@ export function getCompletionSourceForLanguage(language: string) {
 
     if (member) {
       const receiver = receiverBeforeMember(context.state, word.from)
-      const inferred = memberCompletions(language, receiver, code)
+      const typeSource = language === 'c' || language === 'cpp'
+        ? `${code}\n${getProjectLanguageSource(language)}`
+        : code
+      const imported = getImportedModuleMembers(receiver, language, code)
+      const inferred = memberCompletions(language, receiver, typeSource)
       options = [
+        ...imported.map((entry) => completionFromEntry(entry, `Import · ${receiver}`, 18)),
         ...inferred.map((entry) => completionFromEntry(entry, receiver || 'Members', 12)),
         ...memberSet.map((entry) => completionFromEntry(entry, 'Members', 5)),
         ...locals.filter((entry) => entry.type === 'variable').map((entry) => completionFromEntry(entry, 'Local', 2)),

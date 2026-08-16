@@ -75,7 +75,7 @@ function declarationType(code: string, receiver: string, language: string): stri
 function cStructFields(code: string, receiver: string): CompletionEntry[] {
   const id = receiver.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const type = code.match(new RegExp(`\\bstruct\\s+([A-Za-z_]\\w*)\\s+[*]*\\s*${id}\\b`))?.[1]
-    || code.match(new RegExp(`\\b([A-Za-z_]\\w*)\\s+[*]+\\s*${id}\\b`))?.[1]
+    || code.match(new RegExp(`\\b([A-Za-z_]\\w*)\\s+[*]*\\s*${id}\\b`))?.[1]
   if (!type) return []
   const body = code.match(new RegExp(`(?:typedef\\s+)?struct\\s+${type}\\s*\\{([\\s\\S]*?)\\}`, 'm'))?.[1]
     || code.match(new RegExp(`typedef\\s+struct(?:\\s+[A-Za-z_]\\w*)?\\s*\\{([\\s\\S]*?)\\}\\s*${type}\\s*;`, 'm'))?.[1]

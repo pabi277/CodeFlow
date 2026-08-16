@@ -43,10 +43,14 @@ async function main() {
   ok(labels(pySyms).includes('calculateSum'), 'python finds def calculateSum')
   ok(labels(pySyms).includes('MyClass'), 'python finds class MyClass')
   ok(labels(pySyms).includes('myVariable'), 'python finds myVariable')
+  const typedPy = extractLocalSymbols('def greet(name: str, count: int = 1):\n    pass', 'python')
+  ok(labels(typedPy).includes('name') && labels(typedPy).includes('count') && !labels(typedPy).includes('str'), 'python indexes parameter names instead of annotation types')
   const jsSyms = extractLocalSymbols(js, 'javascript')
   ok(labels(jsSyms).includes('calculateSum'), 'js finds calculateSum')
   ok(labels(jsSyms).includes('User'), 'js finds class User')
   ok(labels(jsSyms).includes('myVariable'), 'js finds myVariable')
+  const cleanJs = extractLocalSymbols('// function commentedOut() {}\nconst text = "function stringExample() {}";\nfunction realOne() {}', 'javascript')
+  ok(labels(cleanJs).includes('realOne') && !labels(cleanJs).includes('commentedOut') && !labels(cleanJs).includes('stringExample'), 'symbol index ignores declarations inside comments and strings')
 
   console.log('\n[python quick-fill templates]')
   const printC = PYTHON_COMPLETIONS.find((c) => c.label === 'print')
@@ -134,6 +138,20 @@ static int count = 0;
   const completionState = EditorState.create({ doc: 'calc' })
   const completionResult = source(new CompletionContext(completionState, 4, false))
   ok(!!completionResult?.options.some((entry) => entry.label === 'calculateTotal'), 'suggests symbols from sibling project files')
+  const workspaceFunction = completionResult?.options.find((entry) => entry.label === 'calculateTotal')
+  let callableInsert = ''
+  if (typeof workspaceFunction?.apply === 'function') {
+    workspaceFunction.apply({
+      state: completionState,
+      dispatch: (tr: any) => { callableInsert = completionState.update(tr).state.doc.toString() },
+      focus: () => {},
+    } as any, workspaceFunction, 0, 4)
+  }
+  ok(callableInsert === 'calculateTotal()', `function completion inserts a call with the cursor inside (got ${JSON.stringify(callableInsert)})`)
+  const moduleState = EditorState.create({ doc: "import * as math from './math';\nmath." })
+  const moduleResult = source(new CompletionContext(moduleState, moduleState.doc.length, false))
+  ok(!!moduleResult?.options.some((entry) => entry.label === 'calculateTotal' && String(entry.detail).includes('math.ts')), 'namespace imports expose symbols from the referenced project file')
+
   const explicitState = EditorState.create({ doc: '' })
   const explicitResult = source(new CompletionContext(explicitState, 0, true))
   ok(!!explicitResult?.options.some((entry) => entry.label === 'console'), 'Ctrl+Space works at an empty cursor')
@@ -158,6 +176,13 @@ static int count = 0;
   const cStruct = EditorState.create({ doc: 'struct User { int id; char name[20]; };\nstruct User user;\nuser.' })
   const cMembers = cSource(new CompletionContext(cStruct, cStruct.doc.length, false))
   ok(!!cMembers?.options.some((entry) => entry.label === 'id' && String(entry.detail).includes('struct User')), 'suggests actual C struct fields')
+  setProjectIndex('/main.c', [
+    { path: '/main.c', name: 'main.c', content: 'User user;\nuser.' },
+    { path: '/user.h', name: 'user.h', content: 'typedef struct User { int id; char name[20]; } User;' },
+  ])
+  const cHeaderState = EditorState.create({ doc: 'User user;\nuser.' })
+  const cHeaderMembers = cSource(new CompletionContext(cHeaderState, cHeaderState.doc.length, false))
+  ok(!!cHeaderMembers?.options.some((entry) => entry.label === 'name'), 'C member inference reads struct definitions from project headers')
 
   console.log('\n[more languages]')
   ok(KEYWORDS_BY_LANG.go.some((k) => k.label === 'func'), 'Go keywords are available')
